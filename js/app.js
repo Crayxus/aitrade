@@ -142,8 +142,9 @@ function renderCard(s, idx, pnl) {
       <span>${stars(s.win_rate)}</span>
     </div>
     <div class="meta-cell">
-      <span class="meta-label">R:R</span>
-      <span class="meta-value">${escHtml(s.rr_ratio)}</span>
+      <span class="meta-label">推荐手数</span>
+      <span class="meta-value" style="color:var(--gold)">${escHtml(String(s.recommended_lots))} <span style="font-size:10px;color:var(--muted)">lot</span></span>
+      <span style="font-size:10px;color:var(--muted);font-family:var(--mono)">风险 ~$${escHtml(String(s.risk_usd))}</span>
     </div>
     <div class="meta-cell">
       <span class="meta-label">P&L</span>

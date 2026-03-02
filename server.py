@@ -10,7 +10,18 @@ _cache = {}  # {date_str: strategies_list}
 
 # ── 6 Instruments ────────────────────────────────────────────────────────────
 # NAS100 uses NQ=F (futures, trades 24h) so Beijing 9:30 data exists
-UNIFIED_EXIT = "22:00"   # Beijing time — all positions closed by here
+UNIFIED_EXIT = "03:00"   # Beijing time next morning — US session peak + overnight close
+RISK_USD     = 200       # USD risk per trade (suitable for $10K–$20K account at 1–2% risk)
+
+# USD value per 1-unit price move per 1 standard lot
+LOT_VALUES = {
+    "XAUUSD": 100,     # 100 oz/lot → $1 move = $100
+    "NAS100": 1,       # CFD $1/pt per lot
+    "BTCUSD": 1,       # 1 BTC/lot → $1 move = $1
+    "HK50":   1.3,     # HKD 10/pt ≈ USD 1.3/pt per lot
+    "EURUSD": 100000,  # 100K EUR/lot → 0.0001 move = $10
+    "USOIL":  100,     # 100 barrels/lot → $1 move = $100
+}
 
 STRATEGY_CONFIGS = [
     {
@@ -31,7 +42,7 @@ STRATEGY_CONFIGS = [
     {
         "symbol": "HK50",    "display_name": "Hang Seng",      "ticker": "^HSI",
         "strategy": "Open ORB", "win_rate": 4, "rr_ratio": "1:2.0",
-        "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": "15:45",  # HK market closes 16:00
+        "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": "15:45",  # HK closes 16:00, exit before
     },
     {
         "symbol": "EURUSD",  "display_name": "Euro / USD",     "ticker": "EURUSD=X",
@@ -212,27 +223,33 @@ def build_strategies():
             levels = entry_from_window(isub, atr, current, direction,
                                        cfg["sl_atr"], cfg["tp_atr"])
 
+            lots     = calc_recommended_lots(cfg["symbol"], levels["entry_mid"], levels["stop_loss"])
+            risk_amt = abs(float(levels["entry_mid"]) - float(levels["stop_loss"])) \
+                       * LOT_VALUES.get(cfg["symbol"], 1) * lots
+
             results.append({
-                "symbol":        cfg["symbol"],
-                "display_name":  cfg["display_name"],
-                "strategy":      strat,
-                "direction":     direction,
-                "entry_low":     levels["entry_low"],
-                "entry_high":    levels["entry_high"],
-                "entry_mid":     levels["entry_mid"],
-                "entry_source":  levels["entry_source"],
-                "take_profit":   levels["take_profit"],
-                "tp_pct":        levels["tp_pct"],
-                "stop_loss":     levels["stop_loss"],
-                "sl_pct":        levels["sl_pct"],
-                "exit_time":     cfg["exit_time"],
-                "win_rate":      cfg["win_rate"],
-                "rr_ratio":      cfg["rr_ratio"],
-                "atr":           fmt_price(atr, current),
-                "ema20":         fmt_price(ema20, current),
-                "sparkline":     make_sparkline(close_d),
-                "current":       fmt_price(current, current),
-                "mom_pct":       f"{gap_pct * 100:+.2f}%",
+                "symbol":            cfg["symbol"],
+                "display_name":      cfg["display_name"],
+                "strategy":          strat,
+                "direction":         direction,
+                "entry_low":         levels["entry_low"],
+                "entry_high":        levels["entry_high"],
+                "entry_mid":         levels["entry_mid"],
+                "entry_source":      levels["entry_source"],
+                "take_profit":       levels["take_profit"],
+                "tp_pct":            levels["tp_pct"],
+                "stop_loss":         levels["stop_loss"],
+                "sl_pct":            levels["sl_pct"],
+                "exit_time":         cfg["exit_time"],
+                "win_rate":          cfg["win_rate"],
+                "rr_ratio":          cfg["rr_ratio"],
+                "atr":               fmt_price(atr, current),
+                "ema20":             fmt_price(ema20, current),
+                "sparkline":         make_sparkline(close_d),
+                "current":           fmt_price(current, current),
+                "mom_pct":           f"{gap_pct * 100:+.2f}%",
+                "recommended_lots":  lots,
+                "risk_usd":          round(risk_amt),
             })
 
         except Exception as e:
@@ -261,13 +278,36 @@ def fetch_current_prices():
     return prices
 
 
+def calc_recommended_lots(symbol, entry_mid, stop_loss):
+    """Compute recommended lot size for RISK_USD per trade."""
+    sl_dist = abs(float(entry_mid) - float(stop_loss))
+    lot_val = LOT_VALUES.get(symbol, 1)
+    if sl_dist == 0 or lot_val == 0:
+        return 0.10
+    raw = RISK_USD / (sl_dist * lot_val)
+    # Snap to standard CFD sizes
+    for std in [0.01, 0.02, 0.05, 0.10, 0.20, 0.50, 1.0, 2.0, 5.0, 10.0]:
+        if raw <= std * 1.6:
+            return std
+    return 1.0
+
+
 def is_past_exit(exit_time_str):
-    """Check if current Beijing time has passed the strategy's exit time."""
+    """
+    Check if Beijing time has passed exit_time.
+    Handles next-day exits (e.g. "03:00"):
+      - If exit hour < 9, trigger only when we're past midnight (hour 0–8)
+        AND at/past the exit minute — avoids false trigger before trading starts.
+    """
     try:
         bj_now = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
         h, m   = map(int, exit_time_str.split(":"))
-        exit_dt = bj_now.replace(hour=h, minute=m, second=0, microsecond=0)
-        return bj_now >= exit_dt
+        cur_min  = bj_now.hour * 60 + bj_now.minute
+        exit_min = h * 60 + m
+        if h < 9:   # next-day exit (after midnight)
+            return bj_now.hour < 9 and cur_min >= exit_min
+        else:
+            return cur_min >= exit_min
     except Exception:
         return False
 
