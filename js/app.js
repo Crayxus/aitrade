@@ -1,339 +1,276 @@
 // ── Beijing Time ──
-function getBeijingTime() {
+function bjNow() {
   const now = new Date();
-  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
-  return new Date(utc + 8 * 3600000);
+  return new Date(now.getTime() + now.getTimezoneOffset() * 60000 + 8 * 3600000);
 }
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 
 function updateClock() {
-  const bj = getBeijingTime();
+  const bj = bjNow();
   const h = bj.getHours(), m = bj.getMinutes(), s = bj.getSeconds();
-  document.getElementById('clock').textContent =
-    `${pad2(h)}:${pad2(m)}:${pad2(s)}`;
+  document.getElementById('clock').textContent = `${pad2(h)}:${pad2(m)}:${pad2(s)}`;
 
-  const totalMin = h * 60 + m;
-  const badge = document.getElementById('session-badge');
-  const dot   = document.getElementById('session-dot');
-  const label = document.getElementById('session-label');
+  const min = h * 60 + m;
+  const dot = document.getElementById('session-dot');
+  const lbl = document.getElementById('session-label');
+  const pill = dot.parentElement;
 
-  if (totalMin >= 9 * 60 + 30 && totalMin < 10 * 60 + 30) {
-    dot.className = 'dot-green';
-    label.textContent = '入场窗口 🟢';
-    badge.style.borderColor = 'var(--green)';
-  } else if (totalMin >= 10 * 60 + 30 && totalMin < 22 * 60) {
-    dot.className = 'dot-yellow';
-    label.textContent = '持仓期 🟡';
-    badge.style.borderColor = 'var(--yellow)';
+  if (min >= 570 && min < 630) {
+    dot.className = 'dot dot-green';
+    lbl.textContent = 'ENTRY WINDOW';
+    pill.style.borderColor = 'rgba(0,217,126,.3)';
+  } else if (min >= 630 && min < 1320) {
+    dot.className = 'dot dot-yellow';
+    lbl.textContent = 'IN POSITION';
+    pill.style.borderColor = 'rgba(245,200,66,.3)';
   } else {
-    dot.className = 'dot-red';
-    label.textContent = '已收盘 🔴';
-    badge.style.borderColor = 'var(--red)';
+    dot.className = 'dot dot-red';
+    lbl.textContent = 'MARKET CLOSED';
+    pill.style.borderColor = '';
   }
 }
 
-// ── Date Display ──
-function updateDateDisplay() {
-  const bj = getBeijingTime();
-  const opts = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
-  document.getElementById('date-display').textContent =
-    bj.toLocaleDateString('zh-CN', opts);
+function updateDate() {
+  const bj = bjNow();
+  const d = bj.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', year:'numeric' });
+  document.getElementById('date-display').textContent = d.toUpperCase();
+}
+
+// ── Sparkline SVG ──
+function buildSparkline(points, isUp) {
+  if (!points || points.length < 2) return '';
+  const W = 200, H = 40, pad = 2;
+  const n = points.length;
+  const xs = points.map((_, i) => pad + (i / (n - 1)) * (W - pad * 2));
+  const ys = points.map(v => H - pad - (v / 100) * (H - pad * 2));
+  const d = xs.map((x, i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${ys[i].toFixed(1)}`).join(' ');
+  const fillD = `${d} L${xs[n-1].toFixed(1)},${H} L${xs[0].toFixed(1)},${H} Z`;
+  const color = isUp ? '#00d97e' : '#ff4d6a';
+  const fillColor = isUp ? 'rgba(0,217,126,.08)' : 'rgba(255,77,106,.08)';
+  return `
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <path d="${fillD}" fill="${fillColor}" />
+      <path d="${d}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" />
+    </svg>`;
+}
+
+// ── Range Bar ──
+function buildRangeBar(s, pnl) {
+  const sl = s.stop_loss, tp = s.take_profit;
+  const el = s.entry_low, eh = s.entry_high;
+  const span = tp - sl;
+  if (span === 0) return '';
+
+  const pctOf = v => Math.min(100, Math.max(0, ((v - sl) / span) * 100));
+
+  const entryLeft  = pctOf(el);
+  const entryWidth = pctOf(eh) - entryLeft;
+
+  let nowLeft = null, nowClass = 'neutral';
+  if (pnl) {
+    nowLeft = pctOf(pnl.current_price);
+    nowClass = pnl.status;
+  }
+
+  const fmt = v => String(v);
+
+  return `
+<div class="range-bar-wrap">
+  <div class="range-labels">
+    <span class="lbl-sl">SL</span>
+    <span class="lbl-mid">ENTRY ZONE</span>
+    <span class="lbl-tp">TP</span>
+  </div>
+  <div class="range-track">
+    <div class="range-entry" style="left:${entryLeft.toFixed(1)}%;width:${Math.max(2,entryWidth).toFixed(1)}%"></div>
+    ${nowLeft !== null ? `<div class="range-now ${nowClass}" style="left:${nowLeft.toFixed(1)}%"></div>` : ''}
+  </div>
+  <div class="range-val-row">
+    <span class="rv-sl">${fmt(sl)}</span>
+    <span>${fmt(el)} – ${fmt(eh)}</span>
+    <span class="rv-tp">${fmt(tp)}</span>
+  </div>
+</div>`;
 }
 
 // ── Stars ──
-function renderStars(n) {
-  const filled = Math.min(5, Math.max(0, n));
-  let html = '';
-  for (let i = 0; i < 5; i++) {
-    html += i < filled ? '★' : '<span class="empty">★</span>';
-  }
-  return html;
+function stars(n) {
+  let s = '';
+  for (let i = 0; i < 5; i++) s += i < n ? '★' : '<span class="e">★</span>';
+  return `<span class="stars">${s}</span>`;
 }
 
-// ── Render Cards ──
-function renderCard(s, idx) {
+// ── P&L Chip ──
+function pnlChip(pnl) {
+  if (!pnl) return `<span class="pnl-chip neutral">–</span>`;
+  const icons = { winning: '▲', losing: '▼', hit_tp: '✓', hit_sl: '✕' };
+  return `<span class="pnl-chip ${pnl.status}">${icons[pnl.status] || ''} ${escHtml(pnl.pnl_pct)}</span>`;
+}
+
+// ── Card ──
+function renderCard(s, idx, pnl) {
   const isLong = s.direction === 'LONG';
   const dirClass = isLong ? 'long' : 'short';
-  const dirArrow = isLong ? '▲' : '▼';
-  const dirLabel = isLong ? 'LONG' : 'SHORT';
+  const momPos = s.mom_pct && !s.mom_pct.startsWith('-');
 
   return `
-<div class="card" id="card-${idx}" onclick="toggleDetail(${idx})">
-  <div class="card-header">
-    <div class="symbol-group">
-      <span class="symbol">${escHtml(s.symbol)}</span>
-      <span class="display-name">${escHtml(s.display_name)}</span>
+<div class="card ${dirClass}" id="card-${idx}">
+  <div class="card-top">
+    <div class="sym-block">
+      <div class="sym">${escHtml(s.symbol)}</div>
+      <div class="sym-name">${escHtml(s.display_name)}</div>
     </div>
-    <div class="direction-badge ${dirClass}">
-      <span class="dir-arrow">${dirArrow}</span>
-      ${dirLabel}
+    <div class="dir-block">
+      <div class="dir-badge ${dirClass}">${isLong ? '▲ LONG' : '▼ SHORT'}</div>
+      <div class="strategy-tag">${escHtml(s.strategy)}</div>
     </div>
   </div>
 
-  <div class="card-body">
-    <div class="price-row">
-      <div class="price-cell">
-        <div class="price-label">入场区间</div>
-        <div class="price-value entry-value">${fmtNum(s.entry_low)} - ${fmtNum(s.entry_high)}</div>
-      </div>
-      <div class="price-cell">
-        <div class="price-label">止盈目标</div>
-        <div class="price-value tp-value">${fmtNum(s.take_profit)}</div>
-        <div class="price-pct pct-green">${escHtml(s.tp_pct)}</div>
-      </div>
-      <div class="price-cell">
-        <div class="price-label">止损</div>
-        <div class="price-value sl-value">${fmtNum(s.stop_loss)}</div>
-        <div class="price-pct pct-red">${escHtml(s.sl_pct)}</div>
-      </div>
-    </div>
-
-    <div class="time-row">
-      <div class="time-cell">
-        <span class="time-icon">⏰</span>
-        <div class="time-info">
-          <span class="time-label">入场时机</span>
-          <span class="time-val">${escHtml(s.entry_time)}</span>
-        </div>
-      </div>
-      <div class="time-cell">
-        <span class="time-icon">🏁</span>
-        <div class="time-info">
-          <span class="time-label">平仓时机</span>
-          <span class="time-val">${escHtml(s.exit_time)}</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="meta-row">
-      <div class="stars">${renderStars(s.win_rate)}</div>
-      <div class="rr-badge">风险回报 ${escHtml(s.rr_ratio)}</div>
-    </div>
-
-    <div class="logic-text">${escHtml(s.logic)}</div>
+  <div class="price-row">
+    <div class="price-main">${escHtml(String(s.current))}</div>
+    <div class="price-mom ${momPos ? 'pos' : 'neg'}">${escHtml(s.mom_pct)}</div>
   </div>
 
-  <div class="card-detail" id="detail-${idx}">
-    <div class="detail-row">
-      <span class="detail-label">品种代码</span>
-      <span class="detail-value">${escHtml(s.symbol)}</span>
+  <div class="spark-wrap">${buildSparkline(s.sparkline, isLong)}</div>
+
+  ${buildRangeBar(s, pnl)}
+
+  <div class="card-meta">
+    <div class="meta-cell">
+      <span class="meta-label">WIN RATE</span>
+      <span>${stars(s.win_rate)}</span>
     </div>
-    <div class="detail-row">
-      <span class="detail-label">交易方向</span>
-      <span class="detail-value" style="color:var(--${isLong ? 'green' : 'red'})">${dirArrow} ${dirLabel}</span>
+    <div class="meta-cell">
+      <span class="meta-label">R:R</span>
+      <span class="meta-value">${escHtml(s.rr_ratio)}</span>
     </div>
-    <div class="detail-row">
-      <span class="detail-label">入场区间</span>
-      <span class="detail-value">${fmtNum(s.entry_low)} — ${fmtNum(s.entry_high)}</span>
-    </div>
-    <div class="detail-row">
-      <span class="detail-label">止盈目标</span>
-      <span class="detail-value" style="color:var(--green)">${fmtNum(s.take_profit)} (${escHtml(s.tp_pct)})</span>
-    </div>
-    <div class="detail-row">
-      <span class="detail-label">止损位</span>
-      <span class="detail-value" style="color:var(--red)">${fmtNum(s.stop_loss)} (${escHtml(s.sl_pct)})</span>
-    </div>
-    <div class="detail-row">
-      <span class="detail-label">胜率参考</span>
-      <span class="detail-value">${renderStars(s.win_rate)} (${s.win_rate}/5)</span>
-    </div>
-    <div class="detail-row">
-      <span class="detail-label">风险回报比</span>
-      <span class="detail-value">${escHtml(s.rr_ratio)}</span>
-    </div>
-    <div class="detail-row">
-      <span class="detail-label">入场时机</span>
-      <span class="detail-value">${escHtml(s.entry_time)}</span>
-    </div>
-    <div class="detail-row">
-      <span class="detail-label">平仓时机</span>
-      <span class="detail-value">${escHtml(s.exit_time)}</span>
+    <div class="meta-cell">
+      <span class="meta-label">P&L</span>
+      ${pnlChip(pnl)}
     </div>
   </div>
 </div>`;
 }
 
-function toggleDetail(idx) {
-  const el = document.getElementById(`detail-${idx}`);
-  el.classList.toggle('open');
+function escHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-function escHtml(str) {
-  if (str == null) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+// ── Ticker Tape ──
+function buildTicker(strategies) {
+  if (!strategies || !strategies.length) return;
+  const items = [...strategies, ...strategies].map(s => `
+    <span class="tick-item">
+      <span class="tick-sym">${s.symbol}</span>
+      <span class="tick-val">${s.current}</span>
+      <span class="tick-chg ${s.direction === 'LONG' ? 'pos' : 'neg'}">${s.direction === 'LONG' ? '▲' : '▼'} ${s.mom_pct}</span>
+    </span>`).join('');
+  document.getElementById('ticker-inner').innerHTML = items;
 }
 
-function fmtNum(n) {
-  if (n == null) return '—';
-  const num = Number(n);
-  if (isNaN(num)) return String(n);
-  // Format with appropriate decimals
-  if (num >= 10000) return num.toLocaleString('en-US', { maximumFractionDigits: 0 });
-  if (num >= 100) return num.toLocaleString('en-US', { maximumFractionDigits: 2 });
-  return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 5 });
-}
-
-// ── Skeleton Loader ──
+// ── Skeleton ──
 function showSkeletons() {
-  const grid = document.getElementById('grid');
-  grid.innerHTML = Array(9).fill(0).map(() => `
+  document.getElementById('grid').innerHTML = Array(6).fill(0).map(() => `
     <div class="skeleton-card">
-      <div class="skel-line skel-short"></div>
-      <div class="skel-line skel-medium"></div>
-      <div class="skel-line skel-full"></div>
-      <div class="skel-line skel-full"></div>
-      <div class="skel-line skel-medium"></div>
-    </div>
-  `).join('');
+      <div class="skel s"></div><div class="skel m"></div>
+      <div class="skel xl" style="margin:8px 0"></div>
+      <div class="skel l"></div><div class="skel l"></div>
+      <div class="skel m"></div>
+    </div>`).join('');
 }
 
-// ── Fetch Strategies ──
+// ── State ──
+let _strategies = [];
 let isLoading = false;
 
+// ── Fetch Strategies ──
 async function fetchStrategies(force = false) {
   if (isLoading) return;
   isLoading = true;
 
-  const btn = document.getElementById('refresh-btn');
-  const btnIcon = document.getElementById('btn-icon');
+  const btn    = document.getElementById('refresh-btn');
+  const icon   = document.getElementById('btn-icon');
   const overlay = document.getElementById('loading-overlay');
-  const grid = document.getElementById('grid');
   const statusText = document.getElementById('status-text');
   const cachedLabel = document.getElementById('cached-label');
 
   btn.disabled = true;
-  btnIcon.className = 'btn-icon spinning';
+  icon.className = 'spinning';
+  icon.textContent = '↻';
   overlay.classList.add('visible');
   showSkeletons();
 
-  if (force) {
-    // Clear server cache before fetching
-    try { await fetch('/api/cache/clear', { method: 'POST' }); } catch {}
-  }
+  if (force) { try { await fetch('/api/cache/clear', { method: 'POST' }); } catch {} }
 
   try {
-    const res = await fetch('/api/strategies', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({})
-    });
+    const res  = await fetch('/api/strategies', { method: 'POST' });
     const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
 
-    if (!res.ok || data.error) {
-      throw new Error(data.error || `HTTP ${res.status}`);
-    }
+    _strategies = data.strategies;
+    renderAll(_strategies, null);
+    buildTicker(_strategies);
 
-    const strategies = data.strategies;
-    if (!Array.isArray(strategies) || strategies.length === 0) {
-      throw new Error('未获取到策略数据');
-    }
-
-    grid.innerHTML = strategies.map((s, i) => renderCard(s, i)).join('');
-    statusText.textContent = `已加载 ${strategies.length} 个策略`;
-    cachedLabel.textContent = data.cached ? '📦 今日缓存' : '🔄 实时获取';
+    statusText.textContent = `${_strategies.length} SIGNALS  ·  ${data.date}`;
+    cachedLabel.textContent = data.cached ? 'CACHED' : 'LIVE';
     cachedLabel.style.display = 'inline';
 
+    // Fetch P&L right after strategies load
+    await fetchPnl();
+
   } catch (err) {
-    grid.innerHTML = `
+    document.getElementById('grid').innerHTML = `
       <div class="error-card">
-        <h3>⚠️ 获取策略失败</h3>
+        <h3>CONNECTION ERROR</h3>
         <p>${escHtml(err.message)}</p>
-        <p style="margin-top:8px">请检查网络连接，然后刷新重试。</p>
       </div>`;
-    statusText.textContent = '加载失败';
+    statusText.textContent = 'ERROR';
     cachedLabel.style.display = 'none';
   } finally {
     isLoading = false;
     btn.disabled = false;
-    btnIcon.className = 'btn-icon';
+    icon.className = '';
+    icon.textContent = '↻';
     overlay.classList.remove('visible');
   }
 }
 
-// ── P&L ──
-const STATUS_LABEL = {
-  winning: '盈利中 ▲',
-  losing:  '亏损中 ▼',
-  hit_tp:  '🎯 止盈达成',
-  hit_sl:  '🛑 止损触发',
-};
-
-function renderPnlBar(p) {
-  const pct    = Math.min(100, Math.max(0, p.progress * 100));
-  const markerLeft = Math.min(98, Math.max(2, pct));
-  const label  = STATUS_LABEL[p.status] || p.status;
-
-  return `
-<div class="pnl-bar-wrap status-${p.status}">
-  <div class="pnl-header">
-    <span class="pnl-label">持仓盈亏 &nbsp;<span class="pnl-status-tag">${label}</span></span>
-    <span class="pnl-value">${escHtml(p.pnl_pct)}</span>
-  </div>
-  <div class="pnl-price" style="margin-bottom:5px">现价 ${escHtml(String(p.current_price))} &nbsp;|&nbsp; 入场中价 ${escHtml(String(p.entry_mid))}</div>
-  <div class="pnl-track">
-    <div class="pnl-fill" style="width:${pct}%"></div>
-    <div class="pnl-marker" style="left:${markerLeft}%"></div>
-  </div>
-  <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-top:4px">
-    <span>入场</span><span>→ 止盈</span>
-  </div>
-</div>`;
+// ── Render All ──
+function renderAll(strategies, pnlMap) {
+  document.getElementById('grid').innerHTML =
+    strategies.map((s, i) => renderCard(s, i, pnlMap ? pnlMap[s.symbol] : null)).join('');
 }
 
+// ── Fetch P&L ──
 async function fetchPnl() {
+  if (!_strategies.length) return;
   try {
     const res  = await fetch('/api/pnl', { method: 'POST' });
     if (!res.ok) return;
     const data = await res.json();
     if (!data.pnl) return;
 
-    data.pnl.forEach(p => {
-      // Find card by symbol and inject/update P&L bar
-      const cards = document.querySelectorAll('.card');
-      cards.forEach(card => {
-        const sym = card.querySelector('.symbol');
-        if (sym && sym.textContent === p.symbol) {
-          let bar = card.querySelector('.pnl-bar-wrap');
-          const html = renderPnlBar(p);
-          if (bar) {
-            bar.outerHTML = html;
-          } else {
-            // Insert before card-detail
-            const detail = card.querySelector('.card-detail');
-            if (detail) detail.insertAdjacentHTML('beforebegin', html);
-            else card.querySelector('.card-body').insertAdjacentHTML('beforeend', html);
-          }
-        }
-      });
-    });
+    const pnlMap = {};
+    data.pnl.forEach(p => { pnlMap[p.symbol] = p; });
+
+    renderAll(_strategies, pnlMap);
+    buildTicker(_strategies);
 
     const el = document.getElementById('pnl-updated');
-    if (el) el.textContent = `盈亏更新 ${data.updated_at}`;
-  } catch (e) {
-    // Silent fail — P&L is supplementary info
-  }
+    if (el) el.textContent = `UPDATED ${data.updated_at}`;
+  } catch {}
 }
 
 // ── Init ──
 document.addEventListener('DOMContentLoaded', () => {
   updateClock();
-  updateDateDisplay();
+  updateDate();
   setInterval(updateClock, 1000);
 
-  document.getElementById('refresh-btn').addEventListener('click', () => {
-    fetchStrategies(true);
-  });
+  document.getElementById('refresh-btn').addEventListener('click', () => fetchStrategies(true));
 
-  // Auto-load on page open, then start P&L polling
-  fetchStrategies(false).then(() => {
-    // Start P&L polling after strategies loaded
-    fetchPnl();
-    setInterval(fetchPnl, 5 * 60 * 1000);  // refresh every 5 minutes
-  });
+  fetchStrategies(false);
+  setInterval(fetchPnl, 5 * 60 * 1000);
 });
