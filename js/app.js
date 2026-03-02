@@ -138,17 +138,23 @@ function renderCard(s, idx, pnl) {
 
   <div class="card-meta">
     <div class="meta-cell">
-      <span class="meta-label">WIN RATE</span>
-      <span>${stars(s.win_rate)}</span>
-    </div>
-    <div class="meta-cell">
       <span class="meta-label">推荐手数</span>
       <span class="meta-value" style="color:var(--gold)">${escHtml(String(s.recommended_lots))} <span style="font-size:10px;color:var(--muted)">lot</span></span>
-      <span style="font-size:10px;color:var(--muted);font-family:var(--mono)">风险 ~$${escHtml(String(s.risk_usd))}</span>
+      <span style="font-size:10px;color:var(--muted2);font-family:var(--mono)">${escHtml(s.rr_ratio)}</span>
     </div>
-    <div class="meta-cell">
+    <div class="meta-cell" style="border-left:1px solid var(--border)">
+      <span class="meta-label">止盈 / 止损</span>
+      <span style="font-family:var(--mono);font-size:12px">
+        <span style="color:var(--green);font-weight:700">+$${escHtml(String(s.profit_usd))}</span>
+        <span style="color:var(--muted);margin:0 3px">/</span>
+        <span style="color:var(--red);font-weight:700">-$${escHtml(String(s.risk_usd))}</span>
+      </span>
+      <span style="font-size:10px;color:var(--muted)">预计盈亏 (USD)</span>
+    </div>
+    <div class="meta-cell" style="border-left:1px solid var(--border)">
       <span class="meta-label">P&L</span>
       ${pnlChip(pnl)}
+      <span style="font-size:10px;color:var(--muted)">${stars(s.win_rate)}</span>
     </div>
   </div>
 </div>`;

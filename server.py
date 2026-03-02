@@ -224,9 +224,10 @@ def build_strategies():
             levels = entry_from_window(isub, atr, current, direction,
                                        cfg["sl_atr"], cfg["tp_atr"])
 
-            lots     = calc_recommended_lots(cfg["symbol"], levels["entry_mid"], levels["stop_loss"])
-            risk_amt = abs(float(levels["entry_mid"]) - float(levels["stop_loss"])) \
-                       * LOT_VALUES.get(cfg["symbol"], 1) * lots
+            lots       = calc_recommended_lots(cfg["symbol"], levels["entry_mid"], levels["stop_loss"])
+            lv         = LOT_VALUES.get(cfg["symbol"], 1)
+            risk_amt   = abs(float(levels["entry_mid"]) - float(levels["stop_loss"])) * lv * lots
+            profit_amt = abs(float(levels["take_profit"]) - float(levels["entry_mid"])) * lv * lots
 
             results.append({
                 "symbol":            cfg["symbol"],
@@ -251,6 +252,7 @@ def build_strategies():
                 "mom_pct":           f"{gap_pct * 100:+.2f}%",
                 "recommended_lots":  lots,
                 "risk_usd":          round(risk_amt),
+                "profit_usd":        round(profit_amt),
             })
 
         except Exception as e:
