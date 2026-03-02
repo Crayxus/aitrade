@@ -173,7 +173,7 @@ function buildTicker(strategies) {
 
 // ── Skeleton ──
 function showSkeletons() {
-  document.getElementById('grid').innerHTML = Array(5).fill(0).map(() => `
+  document.getElementById('grid').innerHTML = Array(6).fill(0).map(() => `
     <div class="skeleton-card">
       <div class="skel s"></div><div class="skel m"></div>
       <div class="skel xl" style="margin:8px 0"></div>

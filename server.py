@@ -20,6 +20,7 @@ LOT_VALUES = {
     "BTCUSD": 1,       # 1 BTC/lot → $1 move = $1
     "HK50":   1.3,     # HKD 10/pt ≈ USD 1.3/pt per lot
     "EURUSD": 100000,  # 100K EUR/lot → 0.0001 move = $10
+    "GBPUSD": 100000,  # 100K GBP/lot → 0.0001 move = $10
     "USOIL":  100,     # 100 barrels/lot → $1 move = $100
 }
 
@@ -43,6 +44,11 @@ STRATEGY_CONFIGS = [
         "symbol": "EURUSD",  "display_name": "Euro / USD",     "ticker": "EURUSD=X",
         "strategy": "Trend",    "win_rate": 3, "rr_ratio": "1:1.5",
         "sl_atr": 0.8, "tp_atr": 1.2, "exit_time": UNIFIED_EXIT,
+    },
+    {
+        "symbol": "GBPUSD",  "display_name": "GBP / USD",      "ticker": "GBPUSD=X",
+        "strategy": "Breakout", "win_rate": 3, "rr_ratio": "1:2.0",
+        "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": UNIFIED_EXIT,
     },
     {
         "symbol": "USOIL",   "display_name": "Crude Oil WTI",  "ticker": "CL=F",
