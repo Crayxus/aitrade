@@ -40,11 +40,6 @@ STRATEGY_CONFIGS = [
         "sl_atr": 1.0, "tp_atr": 2.5, "exit_time": UNIFIED_EXIT,
     },
     {
-        "symbol": "HK50",    "display_name": "Hang Seng",      "ticker": "^HSI",
-        "strategy": "Open ORB", "win_rate": 4, "rr_ratio": "1:2.0",
-        "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": "15:45",  # HK closes 16:00, exit before
-    },
-    {
         "symbol": "EURUSD",  "display_name": "Euro / USD",     "ticker": "EURUSD=X",
         "strategy": "Trend",    "win_rate": 3, "rr_ratio": "1:1.5",
         "sl_atr": 0.8, "tp_atr": 1.2, "exit_time": UNIFIED_EXIT,
