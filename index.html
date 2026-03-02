@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RICH TRADER — 日内CFD策略</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header>
+  <div class="logo">
+    <span class="logo-icon">💰</span>
+    <span class="logo-text">RICH TRADER</span>
+  </div>
+
+  <div class="header-center">
+    <div id="clock">--:--:--</div>
+    <div id="session-badge">
+      <span id="session-dot" class="dot-red"></span>
+      <span id="session-label">加载中...</span>
+    </div>
+  </div>
+
+  <div class="header-right">
+    <span id="date-display"></span>
+    <button id="refresh-btn">
+      <span id="btn-icon" class="btn-icon">🔄</span>
+      刷新策略
+    </button>
+  </div>
+</header>
+
+<!-- ── Loading Overlay ── -->
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div class="loading-text">正在联网搜索今日最佳交易机会...</div>
+</div>
+
+<!-- ── Main ── -->
+<main>
+  <div id="status-bar">
+    <span id="status-text">正在加载...</span>
+    <span id="cached-label" style="display:none"></span>
+  </div>
+
+  <div class="grid" id="grid">
+    <!-- Cards injected by JS -->
+  </div>
+</main>
+
+<!-- ── Footer ── -->
+<footer>
+  <strong>⚠️ 风险提示：</strong>本界面所有策略由AI生成，仅供参考，不构成任何投资建议。<br>
+  CFD杠杆交易具有高风险，可能导致超过本金的损失。请根据自身风险承受能力谨慎决策。<br>
+  RICH TRADER &copy; 2026 &mdash; For Educational Purposes Only
+</footer>
+
+<script src="/js/app.js"></script>
+</body>
+</html>
