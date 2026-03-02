@@ -109,4 +109,5 @@ if __name__ == '__main__':
     print("访问 http://localhost:5051")
     if not ARK_API_KEY:
         print("⚠️  警告: ARK_API_KEY 未设置，请设置环境变量后重启")
-    app.run(host='0.0.0.0', port=5051, debug=False)
+    port = int(os.environ.get("PORT", 5051))
+    app.run(host='0.0.0.0', port=port, debug=False)
