@@ -317,8 +317,8 @@ async function fetchSummary() {
         </div>
         <div class="summary-cell">
           <span class="sc-label">平仓时间</span>
-          <span class="sc-value gold">22:00</span>
-          <span class="sc-sub">北京时间</span>
+          <span class="sc-value gold">03:00</span>
+          <span class="sc-sub">次日北京时间</span>
         </div>
       </div>
       <div class="summary-trades">${pills}</div>`;
