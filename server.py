@@ -259,13 +259,25 @@ def fetch_current_prices():
     return prices
 
 
+def is_past_exit(exit_time_str):
+    """Check if current Beijing time has passed the strategy's exit time."""
+    try:
+        bj_now = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+        h, m   = map(int, exit_time_str.split(":"))
+        exit_dt = bj_now.replace(hour=h, minute=m, second=0, microsecond=0)
+        return bj_now >= exit_dt
+    except Exception:
+        return False
+
+
 def calc_pnl(strategy, current_price):
     if current_price is None:
         return None
     direction   = strategy["direction"]
-    entry_mid   = strategy["entry_mid"]          # ← 9:30-10:00 avg price
+    entry_mid   = strategy["entry_mid"]
     take_profit = strategy["take_profit"]
     stop_loss   = strategy["stop_loss"]
+    exit_time   = strategy.get("exit_time", "22:00")
 
     if direction == "LONG":
         pnl_pct  = (current_price - entry_mid) / entry_mid * 100
@@ -278,10 +290,17 @@ def calc_pnl(strategy, current_price):
         progress = (entry_mid - current_price) / tp_dist if tp_dist else 0
         hit_tp, hit_sl = current_price <= take_profit, current_price >= stop_loss
 
-    if hit_tp:        status = "hit_tp"
-    elif hit_sl:      status = "hit_sl"
-    elif pnl_pct > 0: status = "winning"
-    else:             status = "losing"
+    if hit_tp:
+        status = "hit_tp"
+    elif hit_sl:
+        status = "hit_sl"
+    elif is_past_exit(exit_time):
+        # Time's up — force close at current price, whatever the P&L
+        status = "time_exit"
+    elif pnl_pct > 0:
+        status = "winning"
+    else:
+        status = "losing"
 
     sign = "+" if pnl_pct >= 0 else ""
     return {
@@ -291,6 +310,7 @@ def calc_pnl(strategy, current_price):
         "pnl_pct":       f"{sign}{pnl_pct:.2f}%",
         "pnl_value":     pnl_pct,
         "status":        status,
+        "exit_time":     exit_time,
         "progress":      round(min(1.0, max(-0.5, progress)), 3),
     }
 

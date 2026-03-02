@@ -324,7 +324,10 @@ main { padding: 24px 28px; max-width: 1440px; margin: 0 auto; }
 .pnl-chip.losing  { color: var(--red); }
 .pnl-chip.hit_tp  { color: var(--gold); }
 .pnl-chip.hit_sl  { color: var(--red); }
-.pnl-chip.neutral { color: var(--muted2); }
+.pnl-chip.neutral    { color: var(--muted2); }
+.pnl-chip.time_exit  { color: #a78bfa; }
+
+.card.time_exit-card { border-top-color: #a78bfa; opacity: 0.85; }
 
 /* ── Skeleton ── */
 .skeleton-card {

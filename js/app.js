@@ -104,7 +104,7 @@ function stars(n) {
 // ── P&L Chip ──
 function pnlChip(pnl) {
   if (!pnl) return `<span class="pnl-chip neutral">–</span>`;
-  const icons = { winning: '▲', losing: '▼', hit_tp: '✓', hit_sl: '✕' };
+  const icons = { winning: '▲', losing: '▼', hit_tp: '✓', hit_sl: '✕', time_exit: '⏰' };
   return `<span class="pnl-chip ${pnl.status}">${icons[pnl.status] || ''} ${escHtml(pnl.pnl_pct)}</span>`;
 }
 
