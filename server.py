@@ -244,6 +244,69 @@ def build_strategies():
     return results
 
 
+def fetch_current_prices():
+    """Fetch latest prices using 1-day 2-minute interval data."""
+    tickers = " ".join(cfg["ticker"] for cfg in STRATEGY_CONFIGS)
+    df = yf.download(
+        tickers, period="1d", interval="2m",
+        progress=False, auto_adjust=True, group_by="ticker"
+    )
+    prices = {}
+    for cfg in STRATEGY_CONFIGS:
+        try:
+            t = cfg["ticker"]
+            sub = df[t].dropna() if len(STRATEGY_CONFIGS) > 1 else df.dropna()
+            prices[cfg["symbol"]] = float(sub['Close'].iloc[-1])
+        except Exception:
+            prices[cfg["symbol"]] = None
+    return prices
+
+
+def calc_pnl(strategy, current_price):
+    """Calculate P&L status for a strategy given current price."""
+    if current_price is None:
+        return None
+
+    direction   = strategy["direction"]
+    entry_mid   = (strategy["entry_low"] + strategy["entry_high"]) / 2
+    take_profit = strategy["take_profit"]
+    stop_loss   = strategy["stop_loss"]
+
+    if direction == "LONG":
+        pnl_pct  = (current_price - entry_mid) / entry_mid * 100
+        # Progress: 0 = at entry, 1 = at TP, negative = toward SL
+        tp_dist  = take_profit - entry_mid
+        progress = (current_price - entry_mid) / tp_dist if tp_dist else 0
+        hit_tp   = current_price >= take_profit
+        hit_sl   = current_price <= stop_loss
+    else:
+        pnl_pct  = (entry_mid - current_price) / entry_mid * 100
+        tp_dist  = entry_mid - take_profit
+        progress = (entry_mid - current_price) / tp_dist if tp_dist else 0
+        hit_tp   = current_price <= take_profit
+        hit_sl   = current_price >= stop_loss
+
+    if hit_tp:
+        status = "hit_tp"
+    elif hit_sl:
+        status = "hit_sl"
+    elif pnl_pct > 0:
+        status = "winning"
+    else:
+        status = "losing"
+
+    sign = "+" if pnl_pct >= 0 else ""
+    return {
+        "symbol":        strategy["symbol"],
+        "current_price": fmt_price(current_price, current_price),
+        "entry_mid":     fmt_price(entry_mid, entry_mid),
+        "pnl_pct":       f"{sign}{pnl_pct:.2f}%",
+        "pnl_value":     pnl_pct,
+        "status":        status,
+        "progress":      round(min(1.0, max(-0.5, progress)), 3),
+    }
+
+
 # ── Routes ───────────────────────────────────────────────────────────────────
 
 @app.route('/')
@@ -271,6 +334,28 @@ def strategies():
         data = build_strategies()
         _cache[date_str] = data
         return jsonify({"strategies": data, "cached": False, "date": date_str})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/pnl', methods=['POST'])
+def pnl():
+    """Return real-time P&L for all active strategies."""
+    utc_now  = datetime.datetime.utcnow()
+    bj_now   = utc_now + datetime.timedelta(hours=8)
+    date_str = bj_now.strftime('%Y-%m-%d')
+
+    # Need strategies to be loaded first
+    if date_str not in _cache:
+        return jsonify({"error": "no_strategies"}), 404
+
+    try:
+        prices  = fetch_current_prices()
+        results = []
+        for s in _cache[date_str]:
+            p = calc_pnl(s, prices.get(s["symbol"]))
+            if p:
+                results.append(p)
+        return jsonify({"pnl": results, "updated_at": bj_now.strftime('%H:%M:%S')})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

@@ -244,7 +244,7 @@ async function fetchStrategies(force = false) {
       <div class="error-card">
         <h3>⚠️ 获取策略失败</h3>
         <p>${escHtml(err.message)}</p>
-        <p style="margin-top:8px">请检查 KIMI_API_KEY 环境变量是否正确设置，然后刷新重试。</p>
+        <p style="margin-top:8px">请检查网络连接，然后刷新重试。</p>
       </div>`;
     statusText.textContent = '加载失败';
     cachedLabel.style.display = 'none';
@@ -256,6 +256,70 @@ async function fetchStrategies(force = false) {
   }
 }
 
+// ── P&L ──
+const STATUS_LABEL = {
+  winning: '盈利中 ▲',
+  losing:  '亏损中 ▼',
+  hit_tp:  '🎯 止盈达成',
+  hit_sl:  '🛑 止损触发',
+};
+
+function renderPnlBar(p) {
+  const pct    = Math.min(100, Math.max(0, p.progress * 100));
+  const markerLeft = Math.min(98, Math.max(2, pct));
+  const label  = STATUS_LABEL[p.status] || p.status;
+
+  return `
+<div class="pnl-bar-wrap status-${p.status}">
+  <div class="pnl-header">
+    <span class="pnl-label">持仓盈亏 &nbsp;<span class="pnl-status-tag">${label}</span></span>
+    <span class="pnl-value">${escHtml(p.pnl_pct)}</span>
+  </div>
+  <div class="pnl-price" style="margin-bottom:5px">现价 ${escHtml(String(p.current_price))} &nbsp;|&nbsp; 入场中价 ${escHtml(String(p.entry_mid))}</div>
+  <div class="pnl-track">
+    <div class="pnl-fill" style="width:${pct}%"></div>
+    <div class="pnl-marker" style="left:${markerLeft}%"></div>
+  </div>
+  <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-top:4px">
+    <span>入场</span><span>→ 止盈</span>
+  </div>
+</div>`;
+}
+
+async function fetchPnl() {
+  try {
+    const res  = await fetch('/api/pnl', { method: 'POST' });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.pnl) return;
+
+    data.pnl.forEach(p => {
+      // Find card by symbol and inject/update P&L bar
+      const cards = document.querySelectorAll('.card');
+      cards.forEach(card => {
+        const sym = card.querySelector('.symbol');
+        if (sym && sym.textContent === p.symbol) {
+          let bar = card.querySelector('.pnl-bar-wrap');
+          const html = renderPnlBar(p);
+          if (bar) {
+            bar.outerHTML = html;
+          } else {
+            // Insert before card-detail
+            const detail = card.querySelector('.card-detail');
+            if (detail) detail.insertAdjacentHTML('beforebegin', html);
+            else card.querySelector('.card-body').insertAdjacentHTML('beforeend', html);
+          }
+        }
+      });
+    });
+
+    const el = document.getElementById('pnl-updated');
+    if (el) el.textContent = `盈亏更新 ${data.updated_at}`;
+  } catch (e) {
+    // Silent fail — P&L is supplementary info
+  }
+}
+
 // ── Init ──
 document.addEventListener('DOMContentLoaded', () => {
   updateClock();
@@ -263,9 +327,13 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(updateClock, 1000);
 
   document.getElementById('refresh-btn').addEventListener('click', () => {
-    fetchStrategies(true);  // force re-fetch (clear cache)
+    fetchStrategies(true);
   });
 
-  // Auto-load on page open
-  fetchStrategies(false);
+  // Auto-load on page open, then start P&L polling
+  fetchStrategies(false).then(() => {
+    // Start P&L polling after strategies loaded
+    fetchPnl();
+    setInterval(fetchPnl, 5 * 60 * 1000);  // refresh every 5 minutes
+  });
 });
