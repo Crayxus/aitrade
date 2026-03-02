@@ -10,36 +10,38 @@ _cache = {}  # {date_str: strategies_list}
 
 # ── 6 Instruments ────────────────────────────────────────────────────────────
 # NAS100 uses NQ=F (futures, trades 24h) so Beijing 9:30 data exists
+UNIFIED_EXIT = "22:00"   # Beijing time — all positions closed by here
+
 STRATEGY_CONFIGS = [
     {
         "symbol": "XAUUSD",  "display_name": "Gold",          "ticker": "GC=F",
         "strategy": "ORB",      "win_rate": 4, "rr_ratio": "1:2.0",
-        "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": "20:00",
+        "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": UNIFIED_EXIT,
     },
     {
         "symbol": "NAS100",  "display_name": "Nasdaq 100",     "ticker": "NQ=F",
         "strategy": "Gap & Go", "win_rate": 4, "rr_ratio": "1:2.0",
-        "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": "22:00",
+        "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": UNIFIED_EXIT,
     },
     {
         "symbol": "BTCUSD",  "display_name": "Bitcoin",        "ticker": "BTC-USD",
         "strategy": "Momentum", "win_rate": 3, "rr_ratio": "1:2.5",
-        "sl_atr": 1.0, "tp_atr": 2.5, "exit_time": "22:00",
+        "sl_atr": 1.0, "tp_atr": 2.5, "exit_time": UNIFIED_EXIT,
     },
     {
         "symbol": "HK50",    "display_name": "Hang Seng",      "ticker": "^HSI",
         "strategy": "Open ORB", "win_rate": 4, "rr_ratio": "1:2.0",
-        "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": "15:00",
+        "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": "15:45",  # HK market closes 16:00
     },
     {
         "symbol": "EURUSD",  "display_name": "Euro / USD",     "ticker": "EURUSD=X",
         "strategy": "Trend",    "win_rate": 3, "rr_ratio": "1:1.5",
-        "sl_atr": 0.8, "tp_atr": 1.2, "exit_time": "15:00",
+        "sl_atr": 0.8, "tp_atr": 1.2, "exit_time": UNIFIED_EXIT,
     },
     {
         "symbol": "USOIL",   "display_name": "Crude Oil WTI",  "ticker": "CL=F",
         "strategy": "Breakout", "win_rate": 3, "rr_ratio": "1:2.0",
-        "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": "21:30",
+        "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": UNIFIED_EXIT,
     },
 ]
 
@@ -359,6 +361,46 @@ def pnl():
         results = [calc_pnl(s, prices.get(s["symbol"])) for s in _cache[date_str]]
         return jsonify({"pnl": [r for r in results if r],
                         "updated_at": bj_now.strftime('%H:%M:%S')})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/summary', methods=['POST'])
+def summary():
+    """Day-end summary: wins, losses, best/worst trade, net P&L."""
+    utc_now  = datetime.datetime.utcnow()
+    bj_now   = utc_now + datetime.timedelta(hours=8)
+    date_str = bj_now.strftime('%Y-%m-%d')
+
+    if date_str not in _cache:
+        return jsonify({"error": "no_strategies"}), 404
+
+    try:
+        prices  = fetch_current_prices()
+        pnl_list = [calc_pnl(s, prices.get(s["symbol"])) for s in _cache[date_str]]
+        pnl_list = [p for p in pnl_list if p]
+
+        wins   = [p for p in pnl_list if p["status"] in ("hit_tp", "winning", "time_exit") and p["pnl_value"] > 0]
+        losses = [p for p in pnl_list if p["status"] in ("hit_sl", "losing",  "time_exit") and p["pnl_value"] <= 0]
+
+        best  = max(pnl_list, key=lambda p: p["pnl_value"],  default=None)
+        worst = min(pnl_list, key=lambda p: p["pnl_value"],  default=None)
+        avg   = sum(p["pnl_value"] for p in pnl_list) / len(pnl_list) if pnl_list else 0
+
+        day_done = is_past_exit(UNIFIED_EXIT)
+
+        return jsonify({
+            "date":       date_str,
+            "day_done":   day_done,
+            "total":      len(pnl_list),
+            "wins":       len(wins),
+            "losses":     len(losses),
+            "win_rate":   round(len(wins) / len(pnl_list) * 100) if pnl_list else 0,
+            "avg_pnl":    f"{avg:+.2f}%",
+            "best":       {"symbol": best["symbol"],  "pnl": best["pnl_pct"]}  if best  else None,
+            "worst":      {"symbol": worst["symbol"], "pnl": worst["pnl_pct"]} if worst else None,
+            "detail":     pnl_list,
+            "updated_at": bj_now.strftime('%H:%M:%S'),
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

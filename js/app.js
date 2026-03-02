@@ -217,8 +217,9 @@ async function fetchStrategies(force = false) {
     cachedLabel.textContent = data.cached ? 'CACHED' : 'LIVE';
     cachedLabel.style.display = 'inline';
 
-    // Fetch P&L right after strategies load
+    // Fetch P&L + summary right after strategies load
     await fetchPnl();
+    await fetchSummary();
 
   } catch (err) {
     document.getElementById('grid').innerHTML = `
@@ -263,6 +264,66 @@ async function fetchPnl() {
   } catch {}
 }
 
+// ── Day Summary ──
+async function fetchSummary() {
+  try {
+    const res  = await fetch('/api/summary', { method: 'POST' });
+    if (!res.ok) return;
+    const d = await res.json();
+    if (d.error) return;
+
+    const panel = document.getElementById('summary-panel');
+    const avgPos = !d.avg_pnl.startsWith('-');
+    const winColor  = d.wins > d.losses ? 'green' : d.wins < d.losses ? 'red' : 'blue';
+    const heading   = d.day_done ? '⏰ 今日交易结束' : '📊 实时汇总';
+
+    // Per-trade pills
+    const pills = (d.detail || []).map(p => {
+      const cls  = p.status === 'hit_tp' ? 'win'
+                 : p.status === 'hit_sl' ? 'loss'
+                 : p.status === 'time_exit' ? 'exit'
+                 : p.pnl_value > 0 ? 'win' : 'loss';
+      const icon = cls === 'win' ? '▲' : cls === 'loss' ? '▼' : '⏰';
+      return `<span class="trade-pill ${cls}">${icon} ${escHtml(p.symbol)} ${escHtml(p.pnl_pct)}</span>`;
+    }).join('');
+
+    panel.style.display = 'block';
+    panel.innerHTML = `
+      <div class="summary-header">
+        <span class="summary-title">${heading}</span>
+        <span class="summary-date">${escHtml(d.date)} &nbsp;·&nbsp; 更新 ${escHtml(d.updated_at)}</span>
+      </div>
+      <div class="summary-body">
+        <div class="summary-cell">
+          <span class="sc-label">胜率</span>
+          <span class="sc-value ${winColor}">${d.win_rate}%</span>
+          <span class="sc-sub">${d.wins}胜 / ${d.losses}负</span>
+        </div>
+        <div class="summary-cell">
+          <span class="sc-label">平均盈亏</span>
+          <span class="sc-value ${avgPos ? 'green' : 'red'}">${escHtml(d.avg_pnl)}</span>
+          <span class="sc-sub">每笔策略</span>
+        </div>
+        <div class="summary-cell">
+          <span class="sc-label">最佳</span>
+          <span class="sc-value green">${d.best ? escHtml(d.best.pnl) : '–'}</span>
+          <span class="sc-sub">${d.best ? escHtml(d.best.symbol) : ''}</span>
+        </div>
+        <div class="summary-cell">
+          <span class="sc-label">最差</span>
+          <span class="sc-value red">${d.worst ? escHtml(d.worst.pnl) : '–'}</span>
+          <span class="sc-sub">${d.worst ? escHtml(d.worst.symbol) : ''}</span>
+        </div>
+        <div class="summary-cell">
+          <span class="sc-label">平仓时间</span>
+          <span class="sc-value gold">22:00</span>
+          <span class="sc-sub">北京时间</span>
+        </div>
+      </div>
+      <div class="summary-trades">${pills}</div>`;
+  } catch {}
+}
+
 // ── Init ──
 document.addEventListener('DOMContentLoaded', () => {
   updateClock();
@@ -272,5 +333,5 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('refresh-btn').addEventListener('click', () => fetchStrategies(true));
 
   fetchStrategies(false);
-  setInterval(fetchPnl, 5 * 60 * 1000);
+  setInterval(() => { fetchPnl(); fetchSummary(); }, 5 * 60 * 1000);
 });

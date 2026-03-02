@@ -372,6 +372,104 @@ main { padding: 24px 28px; max-width: 1440px; margin: 0 auto; }
 .error-card h3 { color: var(--red); margin-bottom: 8px; }
 .error-card p  { color: var(--muted2); font-size: 12px; }
 
+/* ── Summary Panel ── */
+#summary-panel {
+  margin-top: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+}
+
+.summary-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--text);
+}
+
+.summary-date {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted2);
+}
+
+.summary-body {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  divide-color: var(--border);
+}
+
+@media (max-width: 800px) {
+  .summary-body { grid-template-columns: repeat(3, 1fr); }
+}
+
+.summary-cell {
+  padding: 20px 24px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.summary-cell:last-child { border-right: none; }
+
+.sc-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+
+.sc-value {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.sc-value.green  { color: var(--green); }
+.sc-value.red    { color: var(--red); }
+.sc-value.gold   { color: var(--gold); }
+.sc-value.blue   { color: var(--blue); }
+
+.sc-sub {
+  font-size: 11px;
+  color: var(--muted2);
+  font-family: var(--mono);
+}
+
+.summary-trades {
+  padding: 0 24px 16px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.trade-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--border2);
+}
+
+.trade-pill.win  { background: var(--green-bg); color: var(--green); border-color: rgba(0,217,126,.3); }
+.trade-pill.loss { background: var(--red-bg);   color: var(--red);   border-color: rgba(255,77,106,.3); }
+.trade-pill.exit { background: rgba(167,139,250,.1); color: #a78bfa; border-color: rgba(167,139,250,.3); }
+
 /* ── Footer ── */
 footer {
   text-align: center; padding: 20px 28px;
