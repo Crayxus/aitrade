@@ -1,6 +1,7 @@
 import os
 import datetime
 import numpy as np
+import pandas as pd
 import yfinance as yf
 from flask import Flask, jsonify, send_from_directory
 
@@ -8,6 +9,7 @@ app = Flask(__name__, static_folder='.')
 _cache = {}  # {date_str: strategies_list}
 
 # ── 6 Instruments ────────────────────────────────────────────────────────────
+# NAS100 uses NQ=F (futures, trades 24h) so Beijing 9:30 data exists
 STRATEGY_CONFIGS = [
     {
         "symbol": "XAUUSD",  "display_name": "Gold",          "ticker": "GC=F",
@@ -15,7 +17,7 @@ STRATEGY_CONFIGS = [
         "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": "20:00",
     },
     {
-        "symbol": "NAS100",  "display_name": "Nasdaq 100",     "ticker": "^NDX",
+        "symbol": "NAS100",  "display_name": "Nasdaq 100",     "ticker": "NQ=F",
         "strategy": "Gap & Go", "win_rate": 4, "rr_ratio": "1:2.0",
         "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": "22:00",
     },
@@ -73,150 +75,180 @@ def make_sparkline(close, n=12):
     return [round((v - lo) / (hi - lo) * 100, 1) for v in data]
 
 
+def get_window_bars(isub):
+    """
+    Return 5m bars that fall within Beijing 9:30–10:00 today.
+    Beijing 9:30 = UTC 01:30 / Beijing 10:00 = UTC 02:00
+    """
+    try:
+        df = isub.copy()
+        if df.index.tz is None:
+            df.index = df.index.tz_localize('UTC')
+        else:
+            df.index = df.index.tz_convert('UTC')
+
+        today_utc = pd.Timestamp.utcnow().normalize()
+        win_start = today_utc + pd.Timedelta(hours=1, minutes=30)
+        win_end   = today_utc + pd.Timedelta(hours=2)
+
+        return df[(df.index >= win_start) & (df.index <= win_end)]
+    except Exception:
+        return pd.DataFrame()
+
+
+def entry_from_window(isub, atr, current, direction, sl_m, tp_m):
+    """
+    Derive entry_low / entry_high from Beijing 9:30-10:00 bars.
+    Falls back to ±ATR buffer around current price if window unavailable.
+    Returns dict with entry_low, entry_high, entry_mid, entry_source.
+    """
+    window = get_window_bars(isub)
+
+    if len(window) >= 2:
+        closes = np.asarray(window['Close'], dtype=float).flatten()
+        lo = float(np.min(closes))
+        hi = float(np.max(closes))
+        mid = float(np.mean(closes))
+        src = "09:30–10:00 avg"
+    else:
+        # Window not yet reached (pre-9:30) or no data: use current price ±buffer
+        if direction == "LONG":
+            lo  = current - 0.20 * atr
+            hi  = current + 0.08 * atr
+        else:
+            hi  = current + 0.20 * atr
+            lo  = current - 0.08 * atr
+        mid = (lo + hi) / 2
+        src = "pre-window est."
+
+    ref = mid
+    entry_low  = fmt_price(lo,  ref)
+    entry_high = fmt_price(hi,  ref)
+    entry_mid  = fmt_price(mid, ref)
+
+    if direction == "LONG":
+        stop_loss   = fmt_price(entry_low  - sl_m * atr, ref)
+        take_profit = fmt_price(entry_high + tp_m * atr, ref)
+        tp_pct = f"+{(take_profit - entry_high) / entry_high * 100:.2f}%"
+        sl_pct = f"-{(entry_low - stop_loss)   / entry_low  * 100:.2f}%"
+    else:
+        stop_loss   = fmt_price(entry_high + sl_m * atr, ref)
+        take_profit = fmt_price(entry_low  - tp_m * atr, ref)
+        tp_pct = f"+{(entry_low  - take_profit) / entry_low  * 100:.2f}%"
+        sl_pct = f"-{(stop_loss  - entry_high)  / entry_high * 100:.2f}%"
+
+    return {
+        "entry_low":    entry_low,
+        "entry_high":   entry_high,
+        "entry_mid":    entry_mid,
+        "stop_loss":    stop_loss,
+        "take_profit":  take_profit,
+        "tp_pct":       tp_pct,
+        "sl_pct":       sl_pct,
+        "entry_source": src,
+    }
+
+
 def build_strategies():
-    """
-    Fetch daily + intraday data for all instruments.
-    Daily (30d): ATR, EMA, sparkline, gap signal.
-    Intraday 5m (2d): today's open, real-time current price, ORB high/low.
-    Direction logic per strategy type:
-      ORB / Open ORB  → direction = side of intraday open vs prev close (gap direction)
-      Gap & Go        → direction = gap direction (today open vs yesterday close)
-      Momentum        → direction = 5-day momentum sign
-      Trend           → direction = EMA20 vs EMA50
-      Breakout        → direction = close vs 10-day high/low
-    Entry is anchored to CURRENT intraday price (not yesterday close).
-    """
     tickers_str = " ".join(c["ticker"] for c in STRATEGY_CONFIGS)
 
-    # ── Daily data (30d) ──
+    # Daily (30d) – ATR, EMA, sparkline
     df_daily = yf.download(
         tickers_str, period="30d", interval="1d",
         progress=False, auto_adjust=True, group_by="ticker"
     )
 
-    # ── Intraday 5-min (last 2 days) for real-time price + today's open ──
+    # 5-min intraday (last 2 days) – real-time price + 9:30-10:00 window
     df_intra = yf.download(
         tickers_str, period="2d", interval="5m",
         progress=False, auto_adjust=True, group_by="ticker"
     )
 
+    n = len(STRATEGY_CONFIGS)
     results = []
+
     for cfg in STRATEGY_CONFIGS:
         try:
             t = cfg["ticker"]
-            n = len(STRATEGY_CONFIGS)
-
-            # Daily series
             dsub = (df_daily[t] if n > 1 else df_daily).dropna()
-            if len(dsub) < 15:
-                raise ValueError(f"daily: only {len(dsub)} rows")
-
-            close_d = dsub["Close"].values.astype(float)
-            high_d  = dsub["High"].values.astype(float)
-            low_d   = dsub["Low"].values.astype(float)
-
-            atr    = calc_atr(high_d, low_d, close_d)
-            ema20  = calc_ema(close_d, 20)
-            ema50  = calc_ema(close_d, min(50, len(close_d) - 1))
-            prev_close = close_d[-2]   # yesterday close
-            last_close = close_d[-1]   # last completed daily bar
-
-            high10 = float(np.max(high_d[-10:]))
-            low10  = float(np.min(low_d[-10:]))
-            mom5   = (last_close - close_d[-6]) / close_d[-6]
-
-            # Intraday series → real-time price & today open
             isub = (df_intra[t] if n > 1 else df_intra).dropna()
-            if len(isub) >= 2:
-                current = float(isub["Close"].iloc[-1])
-                # Today's open = first bar of today (UTC date matching Beijing date)
-                today_open = float(isub["Open"].iloc[0])
-            else:
-                current    = last_close
-                today_open = last_close
 
-            # ── Direction signal per strategy ──
-            strat = cfg["strategy"]
+            if len(dsub) < 15:
+                raise ValueError(f"daily: {len(dsub)} rows")
+
+            close_d  = np.asarray(dsub["Close"], dtype=float).flatten()
+            high_d   = np.asarray(dsub["High"],  dtype=float).flatten()
+            low_d    = np.asarray(dsub["Low"],   dtype=float).flatten()
+
+            atr       = calc_atr(high_d, low_d, close_d)
+            ema20     = calc_ema(close_d, 20)
+            ema50     = calc_ema(close_d, min(50, len(close_d) - 1))
+            prev_close = close_d[-2]
+            mom5      = (close_d[-1] - close_d[-6]) / close_d[-6]
+            high10    = float(np.max(high_d[-10:]))
+            low10     = float(np.min(low_d[-10:]))
+
+            # Real-time current price from intraday
+            current    = float(np.asarray(isub["Close"], dtype=float).flatten()[-1]) if len(isub) > 0 else close_d[-1]
+            today_open = float(np.asarray(isub["Open"],  dtype=float).flatten()[0])  if len(isub) > 0 else close_d[-1]
             gap_pct = (today_open - prev_close) / prev_close
 
+            # Direction signal
+            strat = cfg["strategy"]
             if strat in ("ORB", "Open ORB"):
-                # Trade in the direction of the gap / opening thrust
                 direction = "LONG" if gap_pct >= 0 else "SHORT"
             elif strat == "Gap & Go":
-                # Gap > 0.1% is significant; follow gap direction
-                if abs(gap_pct) >= 0.001:
-                    direction = "LONG" if gap_pct > 0 else "SHORT"
-                else:
-                    direction = "LONG" if current > ema20 else "SHORT"
+                direction = "LONG" if gap_pct > 0 else "SHORT"
             elif strat == "Momentum":
                 direction = "LONG" if mom5 > 0 else "SHORT"
             elif strat == "Trend":
                 direction = "LONG" if ema20 > ema50 else "SHORT"
             else:  # Breakout
-                # Price near 10-day high → breakout long; near low → breakout short
-                dist_high = abs(current - high10)
-                dist_low  = abs(current - low10)
-                direction = "LONG" if dist_high <= dist_low else "SHORT"
+                direction = "LONG" if abs(current - high10) <= abs(current - low10) else "SHORT"
 
-            # ── Levels anchored to CURRENT intraday price ──
-            sl_m, tp_m = cfg["sl_atr"], cfg["tp_atr"]
-
-            if direction == "LONG":
-                entry_low   = fmt_price(current - 0.20 * atr, current)
-                entry_high  = fmt_price(current + 0.08 * atr, current)
-                stop_loss   = fmt_price(entry_low  - sl_m * atr, current)
-                take_profit = fmt_price(entry_high + tp_m * atr, current)
-                tp_pct = f"+{(take_profit - entry_high) / entry_high * 100:.2f}%"
-                sl_pct = f"-{(entry_low   - stop_loss)  / entry_low  * 100:.2f}%"
-            else:
-                entry_high  = fmt_price(current + 0.20 * atr, current)
-                entry_low   = fmt_price(current - 0.08 * atr, current)
-                stop_loss   = fmt_price(entry_high + sl_m * atr, current)
-                take_profit = fmt_price(entry_low  - tp_m * atr, current)
-                tp_pct = f"+{(entry_low  - take_profit) / entry_low  * 100:.2f}%"
-                sl_pct = f"-{(stop_loss  - entry_high)  / entry_high * 100:.2f}%"
-
-            # mom_pct shown in ticker tape
-            mom_pct = f"{gap_pct * 100:+.2f}%"  # show today's gap as daily change
+            # Entry from 9:30-10:00 window
+            levels = entry_from_window(isub, atr, current, direction,
+                                       cfg["sl_atr"], cfg["tp_atr"])
 
             results.append({
-                "symbol":       cfg["symbol"],
-                "display_name": cfg["display_name"],
-                "strategy":     strat,
-                "direction":    direction,
-                "entry_low":    entry_low,
-                "entry_high":   entry_high,
-                "take_profit":  take_profit,
-                "tp_pct":       tp_pct,
-                "stop_loss":    stop_loss,
-                "sl_pct":       sl_pct,
-                "exit_time":    cfg["exit_time"],
-                "win_rate":     cfg["win_rate"],
-                "rr_ratio":     cfg["rr_ratio"],
-                "atr":          fmt_price(atr, current),
-                "ema20":        fmt_price(ema20, current),
-                "sparkline":    make_sparkline(close_d),
-                "current":      fmt_price(current, current),
-                "mom_pct":      mom_pct,
-                "gap_pct":      round(gap_pct * 100, 3),
+                "symbol":        cfg["symbol"],
+                "display_name":  cfg["display_name"],
+                "strategy":      strat,
+                "direction":     direction,
+                "entry_low":     levels["entry_low"],
+                "entry_high":    levels["entry_high"],
+                "entry_mid":     levels["entry_mid"],
+                "entry_source":  levels["entry_source"],
+                "take_profit":   levels["take_profit"],
+                "tp_pct":        levels["tp_pct"],
+                "stop_loss":     levels["stop_loss"],
+                "sl_pct":        levels["sl_pct"],
+                "exit_time":     cfg["exit_time"],
+                "win_rate":      cfg["win_rate"],
+                "rr_ratio":      cfg["rr_ratio"],
+                "atr":           fmt_price(atr, current),
+                "ema20":         fmt_price(ema20, current),
+                "sparkline":     make_sparkline(close_d),
+                "current":       fmt_price(current, current),
+                "mom_pct":       f"{gap_pct * 100:+.2f}%",
             })
+
         except Exception as e:
             print(f"[WARN] {cfg['symbol']}: {e}")
 
     if not results:
-        raise RuntimeError("All strategy fetches failed")
+        raise RuntimeError("All fetches failed")
     return results
 
 
 def fetch_current_prices():
-    """Fetch real-time prices using 5-min intraday data."""
     tickers_str = " ".join(c["ticker"] for c in STRATEGY_CONFIGS)
     df = yf.download(
         tickers_str, period="1d", interval="5m",
         progress=False, auto_adjust=True, group_by="ticker"
     )
-    prices = {}
     n = len(STRATEGY_CONFIGS)
+    prices = {}
     for cfg in STRATEGY_CONFIGS:
         try:
             t = cfg["ticker"]
@@ -231,7 +263,7 @@ def calc_pnl(strategy, current_price):
     if current_price is None:
         return None
     direction   = strategy["direction"]
-    entry_mid   = (strategy["entry_low"] + strategy["entry_high"]) / 2
+    entry_mid   = strategy["entry_mid"]          # ← 9:30-10:00 avg price
     take_profit = strategy["take_profit"]
     stop_loss   = strategy["stop_loss"]
 
