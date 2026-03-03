@@ -1,0 +1,113 @@
+// @version=5
+// ══════════════════════════════════════════════════════
+//  RICH TRADER — Simple Version (paste this into TV)
+//  XAUUSD / EURUSD / GBPUSD → London session 15:00 BJ
+//  NAS100 / BTCUSD / USOIL  → NY session    21:00 BJ
+// ══════════════════════════════════════════════════════
+strategy("Rich Trader", overlay=true, pyramiding=0,
+     default_qty_type=strategy.cash, default_qty_value=200,
+     initial_capital=10000, currency=currency.USD,
+     process_orders_on_close=false)
+
+// ── Inputs ──────────────────────────────────────────
+session   = input.string("London", "Session", options=["London","NY"])
+sl_mult   = input.float(1.0, "SL × ATR", step=0.1)
+tp_mult   = input.float(2.0, "TP × ATR", step=0.1)
+min_score = input.int(2,    "Min signal score (1-6)", minval=1, maxval=6)
+
+// ── Beijing time ─────────────────────────────────────
+bj_h   = hour(time,   "Asia/Shanghai")
+bj_m   = minute(time, "Asia/Shanghai")
+bj_min = bj_h * 60 + bj_m
+bj_day = year(time,"Asia/Shanghai")*10000 + month(time,"Asia/Shanghai")*100 + dayofmonth(time,"Asia/Shanghai")
+
+// Entry windows (minutes since midnight Beijing)
+// London: 15:00-15:45 = min 900-945
+// NY:     21:00-22:00 = min 1260-1320
+entry_s = session == "London" ? 900  : 1260
+entry_e = session == "London" ? 945  : 1320
+in_entry = bj_min >= entry_s and bj_min < entry_e
+in_exit  = bj_h >= 3 and bj_h < 9   // force-exit 03:00 BJ
+
+// ── Multi-timeframe data ─────────────────────────────
+d_close = request.security(syminfo.tickerid, "D", close,    lookahead=barmerge.lookahead_off)
+d_open  = request.security(syminfo.tickerid, "D", open,     lookahead=barmerge.lookahead_on)
+d_prev  = request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_on)
+h_close = request.security(syminfo.tickerid, "60", close,   lookahead=barmerge.lookahead_off)
+
+// ── Indicators ───────────────────────────────────────
+ema20d = ta.ema(d_close, 20)
+ema50d = ta.ema(d_close, 50)
+mom20  = d_close[20] != 0 ? (d_close - d_close[20]) / d_close[20] : 0.0
+rsi14  = ta.rsi(d_close, 14)
+gap    = d_prev != 0 ? (d_open - d_prev) / d_prev : 0.0
+ema20h = ta.ema(h_close, 20)
+atr14  = ta.atr(14)
+
+// ── 6-signal score ───────────────────────────────────
+s1 = d_close > ema20d ? 1 : -1
+s2 = mom20   > 0      ? 1 : -1
+s3 = gap >  0.0005 ? 1 : gap < -0.0005 ? -1 : 0
+s4 = rsi14 < 40    ? 1 : rsi14 > 60    ? -1 : 0
+s5 = h_close > ema20h ? 1 : -1
+s6 = d_close > ema50d ? 1 : -1
+score = s1 + s2 + s3 + s4 + s5 + s6
+
+go_long  = score >=  min_score
+go_short = score <= -min_score
+
+// ── Entry: once per Beijing day ───────────────────────
+var int last_day = 0
+no_pos = strategy.position_size == 0
+fresh  = last_day != bj_day
+
+if in_entry and no_pos and fresh
+    if go_long
+        strategy.entry("L", strategy.long,  comment="LONG "  + str.tostring(score) + "/6")
+        strategy.exit("Lx","L", stop=close - sl_mult*atr14, limit=close + tp_mult*atr14)
+        last_day := bj_day
+    else if go_short
+        strategy.entry("S", strategy.short, comment="SHORT " + str.tostring(score) + "/6")
+        strategy.exit("Sx","S", stop=close + sl_mult*atr14, limit=close - tp_mult*atr14)
+        last_day := bj_day
+
+// ── Force-exit 03:00 Beijing ─────────────────────────
+if in_exit and not no_pos
+    strategy.close_all(comment="03:00 EXIT")
+
+// ── Alerts (webhook JSON) ─────────────────────────────
+sig_long  = in_entry and no_pos and fresh and go_long
+sig_short = in_entry and no_pos and fresh and go_short
+if sig_long
+    alert('{"action":"LONG","symbol":"'  + syminfo.ticker + '","price":' + str.tostring(math.round(close,4)) + ',"score":' + str.tostring(score) + '}', alert.freq_once_per_bar_close)
+if sig_short
+    alert('{"action":"SHORT","symbol":"' + syminfo.ticker + '","price":' + str.tostring(math.round(close,4)) + ',"score":' + str.tostring(score) + '}', alert.freq_once_per_bar_close)
+if in_exit and not no_pos
+    alert('{"action":"EXIT","symbol":"'  + syminfo.ticker + '","price":' + str.tostring(math.round(close,4)) + '}', alert.freq_once_per_bar_close)
+
+// ── Visuals ───────────────────────────────────────────
+plot(ema20d, "EMA20(D)", color.new(color.blue,   50), 1)
+plot(ema50d, "EMA50(D)", color.new(color.orange, 50), 1)
+plotshape(sig_long,  style=shape.triangleup,   location=location.belowbar, color=color.lime, size=size.normal, title="Long")
+plotshape(sig_short, style=shape.triangledown, location=location.abovebar, color=color.red,  size=size.normal, title="Short")
+bgcolor(in_entry ? color.new(color.green, 88) : na, title="Entry Window")
+bgcolor(in_exit  ? color.new(color.red,   93) : na, title="Exit Window")
+
+// ── Info table ────────────────────────────────────────
+sc(v) => v > 0 ? color.lime : v < 0 ? color.red : color.gray
+var table t = table.new(position.top_right, 2, 9, bgcolor=color.new(color.black,72), border_width=1, border_color=color.new(color.gray,70))
+if barstate.islast
+    table.cell(t,0,0,"RICH TRADER",  text_color=color.white,  text_size=size.small)
+    table.cell(t,1,0,syminfo.ticker, text_color=color.yellow, text_size=size.small)
+    score_c = math.abs(score) >= min_score ? (score>0 ? color.lime : color.red) : color.gray
+    table.cell(t,0,1,"SCORE", text_color=color.silver, text_size=size.tiny)
+    table.cell(t,1,1,str.tostring(score)+"/6", text_color=score_c, text_size=size.small)
+    table.cell(t,0,2,"EMA20",  text_color=color.silver,text_size=size.tiny); table.cell(t,1,2,s1>0?"▲":"▼",text_color=sc(s1),text_size=size.small)
+    table.cell(t,0,3,"MOM20",  text_color=color.silver,text_size=size.tiny); table.cell(t,1,3,s2>0?"▲":"▼",text_color=sc(s2),text_size=size.small)
+    table.cell(t,0,4,"GAP",    text_color=color.silver,text_size=size.tiny); table.cell(t,1,4,s3>0?"▲":s3<0?"▼":"—",text_color=sc(s3),text_size=size.small)
+    table.cell(t,0,5,"RSI14",  text_color=color.silver,text_size=size.tiny); table.cell(t,1,5,str.tostring(math.round(rsi14,1)),text_color=rsi14<40?color.lime:rsi14>60?color.red:color.gray,text_size=size.small)
+    table.cell(t,0,6,"HR-EMA", text_color=color.silver,text_size=size.tiny); table.cell(t,1,6,s5>0?"▲":"▼",text_color=sc(s5),text_size=size.small)
+    table.cell(t,0,7,"EMA50",  text_color=color.silver,text_size=size.tiny); table.cell(t,1,7,s6>0?"▲":"▼",text_color=sc(s6),text_size=size.small)
+    sess_t = in_entry?"ENTRY ✓":in_exit?"EXIT":bj_h<3 or bj_min>=entry_s?"IN POS":"CLOSED"
+    sess_c = in_entry?color.lime:in_exit?color.red:bj_h<3 or bj_min>=entry_s?color.yellow:color.gray
+    table.cell(t,0,8,"SESSION",text_color=color.silver,text_size=size.tiny); table.cell(t,1,8,sess_t,text_color=sess_c,text_size=size.small)
