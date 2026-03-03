@@ -16,19 +16,30 @@ function updateClock() {
   const lbl = document.getElementById('session-label');
   const pill = dot.parentElement;
 
-  // Session: entry 09:30–10:30, in-position 10:30–03:00(+1d), closed 03:00–09:30
-  if (min >= 570 && min < 630) {
+  // London entry: 15:00–15:45 BJ = min 900–945
+  // NY entry:     21:00–22:00 BJ = min 1260–1320
+  // Force-exit:   03:00–09:00 BJ = h in [3,9)
+  // Otherwise: in position or pre-market
+  if (min >= 900 && min < 945) {
     dot.className = 'dot dot-green';
-    lbl.textContent = 'ENTRY WINDOW';
+    lbl.textContent = 'LONDON ENTRY';
     pill.style.borderColor = 'rgba(0,217,126,.3)';
-  } else if (min >= 630 || h < 3) {
+  } else if (min >= 1260 && min < 1320) {
+    dot.className = 'dot dot-green';
+    lbl.textContent = 'NY ENTRY';
+    pill.style.borderColor = 'rgba(0,217,126,.3)';
+  } else if (h >= 3 && h < 9) {
+    dot.className = 'dot dot-red';
+    lbl.textContent = 'CLOSED · 15:00';
+    pill.style.borderColor = '';
+  } else if (min >= 945 && min < 1260) {
+    dot.className = 'dot dot-yellow';
+    lbl.textContent = 'NY OPENS 21:00';
+    pill.style.borderColor = 'rgba(245,200,66,.3)';
+  } else {
     dot.className = 'dot dot-yellow';
     lbl.textContent = 'EXIT 03:00';
     pill.style.borderColor = 'rgba(245,200,66,.3)';
-  } else {
-    dot.className = 'dot dot-red';
-    lbl.textContent = 'CLOSED · 09:30';
-    pill.style.borderColor = '';
   }
 }
 
@@ -146,6 +157,7 @@ function renderCard(s, idx, pnl) {
     <div class="dir-block">
       <div class="dir-badge ${dirClass}">${isLong ? '▲ LONG' : '▼ SHORT'}</div>
       <div class="strategy-tag">${escHtml(s.strategy)}</div>
+      <div class="strategy-tag" style="margin-top:2px;color:var(--blue)">⏰ ${escHtml(s.entry_start||'')} BJ</div>
     </div>
   </div>
 
@@ -198,35 +210,42 @@ let _pnlData = [];
 
 function updateCountdown() {
   const el = document.getElementById('countdown');
+  const lb = document.getElementById('countdown-label');
   if (!el) return;
-  const bj = bjNow();
-  const h = bj.getHours();
+  const bj  = bjNow();
+  const h   = bj.getHours();
+  const min = h * 60 + bj.getMinutes();
 
-  let closeTime = new Date(bj.getTime());
-  if (h >= 9) {
-    closeTime.setDate(closeTime.getDate() + 1);
-    closeTime.setHours(3, 0, 0, 0);
-  } else if (h < 3) {
-    closeTime.setHours(3, 0, 0, 0);
+  // Determine what we're counting down TO
+  let target = new Date(bj.getTime());
+  let label  = 'CLOSE IN';
+
+  if (h >= 3 && h < 9) {
+    // Between sessions — count to London open 15:00
+    target.setHours(15, 0, 0, 0);
+    label = 'LONDON IN';
+  } else if (min >= 945 && min < 1260) {
+    // Post-London, pre-NY — count to NY open 21:00
+    target.setHours(21, 0, 0, 0);
+    label = 'NY IN';
   } else {
-    el.textContent = 'CLOSED';
-    el.className = 'live-value red';
-    return;
+    // In a session or approaching close — count to 03:00 next day
+    if (h >= 9) target.setDate(target.getDate() + 1);
+    target.setHours(3, 0, 0, 0);
+    label = 'CLOSE IN';
   }
 
-  const diff = closeTime - bj;
-  if (diff <= 0) {
-    el.textContent = 'CLOSED';
-    el.className = 'live-value red';
-    return;
-  }
+  if (lb) lb.textContent = label;
+
+  const diff = target - bj;
+  if (diff <= 0) { el.textContent = '00:00:00'; return; }
 
   const totalSecs = Math.floor(diff / 1000);
   const hrs  = Math.floor(totalSecs / 3600);
   const mins = Math.floor((totalSecs % 3600) / 60);
   const secs = totalSecs % 60;
   el.textContent = `${pad2(hrs)}:${pad2(mins)}:${pad2(secs)}`;
-  el.className = `live-value ${hrs < 1 ? 'red' : hrs < 3 ? 'gold' : 'blue'}`;
+  el.className = `live-value ${hrs < 1 ? 'red' : hrs < 2 ? 'gold' : 'blue'}`;
 }
 
 function updatePortfolioPnl() {

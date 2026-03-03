@@ -36,9 +36,13 @@ i_gap_thr  = input.float(0.0005, "Gap Threshold (0.05%)",        step=0.0001,   
 i_min_sc   = input.int(2,        "Min |Score| to enter (1–6)",   minval=1, maxval=6,   group=g2)
 
 g3 = "⚙ Session  (Beijing = Asia/Shanghai, UTC+8)"
-i_entry_s  = input.int(570, "Entry open  (min of BJ day) = 09:30", group=g3)
-i_entry_e  = input.int(600, "Entry close (min of BJ day) = 10:00", group=g3)
-i_exit_h   = input.int(3,   "Force-exit BJ hour (next morning)",   group=g3)
+// London window (XAUUSD / EURUSD / GBPUSD): 15:00 BJ = min 900
+// NY window     (NAS100 / BTCUSD / USOIL)  : 21:00 BJ = min 1260
+i_use_london = input.bool(true,  "Use London session (15:00–15:45 BJ)", group=g3)
+i_use_ny     = input.bool(false, "Use NY session     (21:00–22:00 BJ)", group=g3)
+i_entry_s    = input.int(900,    "Custom entry start (min of BJ day) — overrides above", group=g3)
+i_entry_e    = input.int(945,    "Custom entry end   (min of BJ day)",                   group=g3)
+i_exit_h     = input.int(3,      "Force-exit BJ hour (next morning = 3)",                group=g3)
 
 g4 = "⚙ Webhook"
 i_wh_url   = input.string("", "Webhook URL (optional, leave blank to skip)",
@@ -54,8 +58,14 @@ bj_day = year(time, "Asia/Shanghai") * 10000 +
          month(time, "Asia/Shanghai") * 100   +
          dayofmonth(time, "Asia/Shanghai")
 
-in_entry = bj_min >= i_entry_s and bj_min < i_entry_e  // 09:30–10:00
-in_exit  = bj_h >= i_exit_h and bj_h < 9               // 03:00–09:00
+// Derive actual entry window from session selection
+_entry_s = i_use_london ? 900  : i_use_ny ? 1260 : i_entry_s   // 15:00 or 21:00
+_entry_e = i_use_london ? 945  : i_use_ny ? 1320 : i_entry_e   // 15:45 or 22:00
+
+in_london = bj_min >= 900  and bj_min < 945
+in_ny     = bj_min >= 1260 and bj_min < 1320
+in_entry  = bj_min >= _entry_s and bj_min < _entry_e
+in_exit   = bj_h >= i_exit_h and bj_h < 9               // 03:00–09:00
 
 // ══════════════════════════════════════════════════════════════
 //  MULTI-TIMEFRAME DATA
@@ -223,8 +233,10 @@ if barstate.islast
         str.tostring(math.round(i_sl_mult * atr, 2)) + " / " +
         str.tostring(math.round(i_tp_mult * atr, 2)), color.silver)
 
-    sess_txt = in_entry ? "ENTRY ✓" : in_exit ? "03:00 EXIT" :
-        bj_min >= 630 or bj_h < 3 ? "EXIT 03:00" : "CLOSED"
-    sess_clr = in_entry ? color.lime : in_exit ? color.red :
-        bj_min >= 630 or bj_h < 3 ? color.yellow : color.gray
+    sess_txt = in_london ? "LONDON ENTRY" : in_ny ? "NY ENTRY" :
+        in_exit ? "03:00 EXIT" :
+        bj_h >= 3 and bj_h < 9 ? "CLOSED" :
+        bj_min >= 945 and bj_min < 1260 ? "NY OPENS 21:00" : "EXIT 03:00"
+    sess_clr = (in_london or in_ny) ? color.lime : in_exit ? color.red :
+        bj_h >= 3 and bj_h < 9 ? color.gray : color.yellow
     th(0, 10, "SESSION"); td(1, 10, sess_txt, sess_clr)

@@ -46,35 +46,49 @@ LOT_VALUES = {
 }
 
 STRATEGY_CONFIGS = [
+    # ── London session (15:00–15:45 BJ = 07:00–07:45 UTC) ──
+    # Gold: world's highest-volume session at London open; strong directional moves
     {
         "symbol": "XAUUSD", "display_name": "Gold",          "ticker": "GC=F",
-        "strategy": "ORB",      "win_rate": 4, "rr_ratio": "1:2.0",
+        "strategy": "London ORB", "win_rate": 4, "rr_ratio": "1:2.0",
         "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": UNIFIED_EXIT,
+        "entry_start": "15:00", "entry_end": "15:30",
     },
-    {
-        "symbol": "NAS100", "display_name": "Nasdaq 100",    "ticker": "NQ=F",
-        "strategy": "Gap & Go", "win_rate": 4, "rr_ratio": "1:2.0",
-        "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": UNIFIED_EXIT,
-    },
-    {
-        "symbol": "BTCUSD", "display_name": "Bitcoin",       "ticker": "BTC-USD",
-        "strategy": "Momentum", "win_rate": 3, "rr_ratio": "1:2.5",
-        "sl_atr": 1.0, "tp_atr": 2.5, "exit_time": UNIFIED_EXIT,
-    },
+    # EURUSD: Frankfurt+London overlap is the highest-volume FX session of the day
     {
         "symbol": "EURUSD", "display_name": "Euro / USD",    "ticker": "EURUSD=X",
-        "strategy": "Trend",    "win_rate": 3, "rr_ratio": "1:1.5",
-        "sl_atr": 0.8, "tp_atr": 1.2, "exit_time": UNIFIED_EXIT,
+        "strategy": "London Breakout", "win_rate": 4, "rr_ratio": "1:1.6",
+        "sl_atr": 0.8, "tp_atr": 1.6, "exit_time": UNIFIED_EXIT,
+        "entry_start": "15:00", "entry_end": "15:45",
     },
+    # GBPUSD: same London advantage; GBP volatile at 15:00 (UK data + sentiment)
     {
         "symbol": "GBPUSD", "display_name": "GBP / USD",     "ticker": "GBPUSD=X",
-        "strategy": "Breakout", "win_rate": 3, "rr_ratio": "1:2.0",
-        "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": UNIFIED_EXIT,
+        "strategy": "London Breakout", "win_rate": 3, "rr_ratio": "1:1.6",
+        "sl_atr": 0.8, "tp_atr": 1.6, "exit_time": UNIFIED_EXIT,
+        "entry_start": "15:00", "entry_end": "15:45",
     },
+    # ── New York session (21:00–22:00 BJ = 13:00–14:00 UTC) ──
+    # NAS100: index moves most in the first 30 min of NY; gap fills and momentum runs
+    {
+        "symbol": "NAS100", "display_name": "Nasdaq 100",    "ticker": "NQ=F",
+        "strategy": "NY ORB",   "win_rate": 4, "rr_ratio": "1:2.5",
+        "sl_atr": 1.0, "tp_atr": 2.5, "exit_time": UNIFIED_EXIT,
+        "entry_start": "21:30", "entry_end": "22:00",
+    },
+    # BTCUSD: follows US equity open; strongest momentum when Wall Street opens
+    {
+        "symbol": "BTCUSD", "display_name": "Bitcoin",       "ticker": "BTC-USD",
+        "strategy": "NY Momentum", "win_rate": 3, "rr_ratio": "1:2.5",
+        "sl_atr": 1.0, "tp_atr": 2.5, "exit_time": UNIFIED_EXIT,
+        "entry_start": "21:00", "entry_end": "21:30",
+    },
+    # USOIL: EIA inventory data Wed 22:30 BJ; NY session drives energy prices
     {
         "symbol": "USOIL",  "display_name": "Crude Oil WTI", "ticker": "CL=F",
-        "strategy": "Breakout", "win_rate": 3, "rr_ratio": "1:2.0",
+        "strategy": "NY ORB",   "win_rate": 3, "rr_ratio": "1:2.0",
         "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": UNIFIED_EXIT,
+        "entry_start": "21:30", "entry_end": "22:00",
     },
 ]
 
@@ -163,32 +177,43 @@ def score_direction(close_d, high_d, low_d, close_h, gap_pct, rsi, cfg):
 
 # ── Entry Window ─────────────────────────────────────────────────────────────
 
-def get_window_bars(isub):
-    """Beijing 9:30-10:00 = UTC 01:30-02:00"""
+def get_window_bars(isub, entry_start="15:00", entry_end="15:30"):
+    """Return 5m bars within a Beijing time window (converts BJ→UTC automatically)."""
     try:
+        h_s, m_s = map(int, entry_start.split(":"))
+        h_e, m_e = map(int, entry_end.split(":"))
+        # Beijing = UTC+8  →  UTC = Beijing − 8
+        utc_s_h, utc_e_h = h_s - 8, h_e - 8
         df = isub.copy()
         if df.index.tz is None:
             df.index = df.index.tz_localize('UTC')
         else:
             df.index = df.index.tz_convert('UTC')
         today_utc = pd.Timestamp.utcnow().normalize()
-        win_start = today_utc + pd.Timedelta(hours=1, minutes=30)
-        win_end   = today_utc + pd.Timedelta(hours=2)
+        win_start = today_utc + pd.Timedelta(hours=utc_s_h, minutes=m_s)
+        win_end   = today_utc + pd.Timedelta(hours=utc_e_h, minutes=m_e)
         return df[(df.index >= win_start) & (df.index <= win_end)]
     except Exception:
         return pd.DataFrame()
 
-def entry_from_window(isub, atr, current, direction, sl_m, tp_m):
-    window = get_window_bars(isub)
+def entry_from_window(isub, atr, current, direction, sl_m, tp_m,
+                      entry_start="15:00", entry_end="15:30"):
+    window = get_window_bars(isub, entry_start, entry_end)
+    src_label = f"{entry_start}–{entry_end} BJ"
     if len(window) >= 2:
+        # True ORB: use session High/Low (not closes) as the breakout range
+        highs  = np.asarray(window['High'],  dtype=float).flatten()
+        lows   = np.asarray(window['Low'],   dtype=float).flatten()
         closes = np.asarray(window['Close'], dtype=float).flatten()
-        lo, hi, mid = float(np.min(closes)), float(np.max(closes)), float(np.mean(closes))
-        src = "09:30–10:00"
+        lo  = float(np.min(lows))
+        hi  = float(np.max(highs))
+        mid = float(np.mean(closes))
+        src = src_label
     else:
         lo  = current - (0.20 if direction == "LONG" else -0.08) * atr
         hi  = current + (0.08 if direction == "LONG" else  0.20) * atr
         mid = (lo + hi) / 2
-        src = "pre-window"
+        src = f"est · opens {entry_start} BJ"
 
     ref = mid
     el, eh = fmt_price(lo, ref), fmt_price(hi, ref)
@@ -253,7 +278,9 @@ def build_strategies():
                 close_d, high_d, low_d, close_h, gap_pct, rsi, cfg)
 
             levels = entry_from_window(isub, atr, current, direction,
-                                       cfg["sl_atr"], cfg["tp_atr"])
+                                       cfg["sl_atr"], cfg["tp_atr"],
+                                       cfg.get("entry_start", "15:00"),
+                                       cfg.get("entry_end",   "15:30"))
 
             lots       = calc_recommended_lots(cfg["symbol"], levels["entry_mid"], levels["stop_loss"])
             lv         = LOT_VALUES.get(cfg["symbol"], 1)
@@ -281,6 +308,8 @@ def build_strategies():
                 "tp_pct":           levels["tp_pct"],
                 "stop_loss":        levels["stop_loss"],
                 "sl_pct":           levels["sl_pct"],
+                "entry_start":      cfg.get("entry_start", "15:00"),
+                "entry_end":        cfg.get("entry_end",   "15:30"),
                 "exit_time":        cfg["exit_time"],
                 "win_rate":         cfg["win_rate"],
                 "rr_ratio":         cfg["rr_ratio"],
