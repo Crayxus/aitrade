@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 from pathlib import Path
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, send_from_directory, request
 
 app = Flask(__name__, static_folder='.')
 _cache    = {}   # {date_str: strategies_list}
@@ -489,6 +489,38 @@ def history():
 def clear_cache():
     _cache.clear()
     return jsonify({"ok": True})
+
+# ── TradingView Webhook ────────────────────────────────────────────────────────
+_tv_signals = {}   # {symbol: {action, price, score, atr, sl_dist, tp_dist, time}}
+
+@app.route('/api/tv/webhook', methods=['POST'])
+def tv_webhook():
+    """Receives JSON alerts from TradingView Pine Script strategy."""
+    payload = request.get_json(silent=True) or {}
+    sym    = str(payload.get("symbol", "")).upper().replace("OANDA:", "").replace("FX:", "")
+    action = str(payload.get("action", "")).upper()
+    if not sym or action not in ("LONG", "SHORT", "EXIT"):
+        return jsonify({"error": "invalid payload"}), 400
+
+    bj = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+    _tv_signals[sym] = {
+        "symbol":   sym,
+        "action":   action,
+        "price":    payload.get("price"),
+        "score":    payload.get("score"),
+        "atr":      payload.get("atr"),
+        "sl_dist":  payload.get("sl_dist"),
+        "tp_dist":  payload.get("tp_dist"),
+        "tv_time":  payload.get("time"),
+        "recv_at":  bj.strftime("%H:%M:%S"),
+    }
+    print(f"[TV] {action} {sym} @ {payload.get('price')} (score={payload.get('score')})")
+    return jsonify({"ok": True})
+
+@app.route('/api/tv/signals', methods=['GET'])
+def tv_signals():
+    """Return latest TradingView signals received via webhook."""
+    return jsonify({"signals": list(_tv_signals.values())})
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5051))

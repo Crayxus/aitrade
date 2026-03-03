@@ -1,0 +1,230 @@
+// @version=5
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  RICH TRADER — CFD Intraday Strategy                        ║
+// ║  Matches server.py: 6-signal scoring, 09:30–10:00 entry,    ║
+// ║  ATR-based SL/TP, force-exit 03:00 Beijing                  ║
+// ║                                                              ║
+// ║  Recommended: 15m or 1H chart                               ║
+// ║  Instruments : XAUUSD  NAS100  BTCUSD  EURUSD  GBPUSD USOIL ║
+// ╚══════════════════════════════════════════════════════════════╝
+strategy(
+    title                   = "Rich Trader — CFD Intraday",
+    shorttitle              = "RT-CFD",
+    overlay                 = true,
+    pyramiding              = 0,
+    default_qty_type        = strategy.cash,
+    default_qty_value       = 200,
+    initial_capital         = 10000,
+    currency                = currency.USD,
+    process_orders_on_close = false,
+    calc_on_every_tick      = false)
+
+// ══════════════════════════════════════════════════════════════
+//  INPUTS
+// ══════════════════════════════════════════════════════════════
+g1 = "⚙ Risk"
+i_sl_mult  = input.float(1.0,    "SL ATR Multiplier",    minval=0.3, step=0.1,    group=g1)
+i_tp_mult  = input.float(2.0,    "TP ATR Multiplier",    minval=0.5, step=0.1,    group=g1)
+i_risk_usd = input.float(200.0,  "Risk per Trade (USD)", minval=10,               group=g1)
+i_atr_len  = input.int(14,       "ATR Period",           minval=5,                group=g1)
+
+g2 = "⚙ Signals"
+i_rsi_len  = input.int(14,       "RSI Period",                   minval=5,             group=g2)
+i_rsi_os   = input.int(40,       "RSI Oversold  → LONG  (<)",    minval=10, maxval=49, group=g2)
+i_rsi_ob   = input.int(60,       "RSI Overbought→ SHORT (>)",    minval=51, maxval=90, group=g2)
+i_gap_thr  = input.float(0.0005, "Gap Threshold (0.05%)",        step=0.0001,          group=g2)
+i_min_sc   = input.int(2,        "Min |Score| to enter (1–6)",   minval=1, maxval=6,   group=g2)
+
+g3 = "⚙ Session  (Beijing = Asia/Shanghai, UTC+8)"
+i_entry_s  = input.int(570, "Entry open  (min of BJ day) = 09:30", group=g3)
+i_entry_e  = input.int(600, "Entry close (min of BJ day) = 10:00", group=g3)
+i_exit_h   = input.int(3,   "Force-exit BJ hour (next morning)",   group=g3)
+
+g4 = "⚙ Webhook"
+i_wh_url   = input.string("", "Webhook URL (optional, leave blank to skip)",
+    tooltip="Example: https://aitrade.onrender.com/api/tv/webhook", group=g4)
+
+// ══════════════════════════════════════════════════════════════
+//  BEIJING TIME
+// ══════════════════════════════════════════════════════════════
+bj_h   = hour(time,   "Asia/Shanghai")
+bj_m   = minute(time, "Asia/Shanghai")
+bj_min = bj_h * 60 + bj_m
+bj_day = year(time, "Asia/Shanghai") * 10000 +
+         month(time, "Asia/Shanghai") * 100   +
+         dayofmonth(time, "Asia/Shanghai")
+
+in_entry = bj_min >= i_entry_s and bj_min < i_entry_e  // 09:30–10:00
+in_exit  = bj_h >= i_exit_h and bj_h < 9               // 03:00–09:00
+
+// ══════════════════════════════════════════════════════════════
+//  MULTI-TIMEFRAME DATA
+// ══════════════════════════════════════════════════════════════
+// Prior-day confirmed close (close[1] + lookahead_on = no leakage)
+d_prev_c = request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_on)
+// Today's daily open (for gap calculation)
+d_curr_o = request.security(syminfo.tickerid, "D", open,     lookahead=barmerge.lookahead_on)
+
+// Daily series — for EMA / momentum / RSI (confirmed bars, no lookahead)
+d_cls    = request.security(syminfo.tickerid, "D", close,    lookahead=barmerge.lookahead_off)
+
+// 1-Hour close — for hourly trend signal
+h_cls    = request.security(syminfo.tickerid, "60", close,   lookahead=barmerge.lookahead_off)
+
+// ══════════════════════════════════════════════════════════════
+//  INDICATORS
+// ══════════════════════════════════════════════════════════════
+ema20d = ta.ema(d_cls, 20)
+ema50d = ta.ema(d_cls, 50)
+mom20  = d_cls[20] != 0.0 ? (d_cls - d_cls[20]) / d_cls[20] : 0.0
+rsi_d  = ta.rsi(d_cls, i_rsi_len)
+gap    = d_prev_c != 0.0 ? (d_curr_o - d_prev_c) / d_prev_c : 0.0
+
+ema20h = ta.ema(h_cls, 20)
+atr    = ta.atr(i_atr_len)
+
+// ══════════════════════════════════════════════════════════════
+//  6-SIGNAL SCORE  (mirrors server.py score_direction())
+// ══════════════════════════════════════════════════════════════
+s1 = d_cls > ema20d ? 1 : -1                                        // 1. Daily EMA20
+s2 = mom20 > 0.0   ? 1 : -1                                         // 2. 20-day momentum
+s3 = gap >  i_gap_thr ? 1 : gap < -i_gap_thr ? -1 : 0              // 3. Gap direction
+s4 = rsi_d < i_rsi_os ? 1 : rsi_d > i_rsi_ob ? -1 : 0             // 4. RSI mean-reversion
+s5 = h_cls > ema20h ? 1 : -1                                        // 5. Hourly EMA20
+s6 = d_cls > ema50d ? 1 : -1                                        // 6. EMA50 (long trend)
+
+score    = s1 + s2 + s3 + s4 + s5 + s6   // range: -6 to +6
+go_long  = score >=  i_min_sc
+go_short = score <= -i_min_sc
+
+// ══════════════════════════════════════════════════════════════
+//  ENTRY — once per Beijing day, during 09:30–10:00 window
+// ══════════════════════════════════════════════════════════════
+var int last_entry_day = 0
+no_pos      = strategy.position_size == 0
+fresh_today = last_entry_day != bj_day
+
+if in_entry and no_pos and fresh_today
+    sl_d = i_sl_mult * atr
+    tp_d = i_tp_mult * atr
+
+    if go_long
+        strategy.entry("L", strategy.long,
+            comment = "LONG " + str.tostring(score) + "/6")
+        strategy.exit("Lx", "L",
+            stop    = close - sl_d,
+            limit   = close + tp_d,
+            comment = "TP/SL")
+        last_entry_day := bj_day
+
+    else if go_short
+        strategy.entry("S", strategy.short,
+            comment = "SHORT " + str.tostring(score) + "/6")
+        strategy.exit("Sx", "S",
+            stop    = close + sl_d,
+            limit   = close - tp_d,
+            comment = "TP/SL")
+        last_entry_day := bj_day
+
+// ══════════════════════════════════════════════════════════════
+//  FORCE-EXIT at 03:00 Beijing
+// ══════════════════════════════════════════════════════════════
+if in_exit and not no_pos
+    strategy.close_all(comment = "03:00 EXIT")
+
+// ══════════════════════════════════════════════════════════════
+//  ALERTS  (JSON webhook — paste URL into TradingView alert box)
+//
+//  POST body sent to: https://aitrade.onrender.com/api/tv/webhook
+//  {
+//    "action"  : "LONG" | "SHORT" | "EXIT",
+//    "symbol"  : "XAUUSD",
+//    "price"   : 2651.40,
+//    "score"   : 4,
+//    "atr"     : 15.20,
+//    "sl_dist" : 15.20,
+//    "tp_dist" : 30.40,
+//    "time"    : "2026-03-03T09:30:00"
+//  }
+// ══════════════════════════════════════════════════════════════
+_entry_json(dir) =>
+    '{"action":"'  + dir                                           +
+    '","symbol":"' + syminfo.ticker                                +
+    '","price":'   + str.tostring(math.round(close, 4))           +
+    ',"score":'    + str.tostring(score)                           +
+    ',"atr":'      + str.tostring(math.round(atr, 4))             +
+    ',"sl_dist":'  + str.tostring(math.round(i_sl_mult * atr, 4)) +
+    ',"tp_dist":'  + str.tostring(math.round(i_tp_mult * atr, 4)) +
+    ',"time":"{{timenow}}"}'
+
+sig_long  = in_entry and no_pos and fresh_today and go_long
+sig_short = in_entry and no_pos and fresh_today and go_short
+sig_exit  = in_exit and not no_pos
+
+if sig_long
+    alert(_entry_json("LONG"),  alert.freq_once_per_bar_close)
+if sig_short
+    alert(_entry_json("SHORT"), alert.freq_once_per_bar_close)
+if sig_exit
+    alert('{"action":"EXIT","symbol":"' + syminfo.ticker +
+          '","price":' + str.tostring(math.round(close, 4)) + ',"time":"{{timenow}}"}',
+          alert.freq_once_per_bar_close)
+
+// Legacy alertcondition (for manual alert setup in TV)
+alertcondition(sig_long,  "LONG Signal",  "LONG {{ticker}} score=" + str.tostring(score))
+alertcondition(sig_short, "SHORT Signal", "SHORT {{ticker}} score=" + str.tostring(score))
+alertcondition(sig_exit,  "EXIT Signal",  "EXIT {{ticker}} @ 03:00 BJ")
+
+// ══════════════════════════════════════════════════════════════
+//  VISUALS
+// ══════════════════════════════════════════════════════════════
+// Daily EMAs
+plot(ema20d, "EMA 20 (D)", color.new(color.blue,   45), 1)
+plot(ema50d, "EMA 50 (D)", color.new(color.orange, 45), 1)
+
+// Entry signals
+plotshape(sig_long,  title="Long Entry",  style=shape.triangleup,
+    location=location.belowbar, color=color.lime, size=size.normal)
+plotshape(sig_short, title="Short Entry", style=shape.triangledown,
+    location=location.abovebar, color=color.red,  size=size.normal)
+
+// Session shading
+bgcolor(in_entry ? color.new(color.green, 88) : na, title="Entry Window 09:30–10:00")
+bgcolor(in_exit  ? color.new(color.red,   93) : na, title="Exit Window 03:00–09:00")
+
+// ══════════════════════════════════════════════════════════════
+//  INFO TABLE  (top-right corner)
+// ══════════════════════════════════════════════════════════════
+sc(v) => v > 0 ? color.lime : v < 0 ? color.red : color.gray
+
+var table tbl = table.new(position.top_right, 2, 11,
+    bgcolor      = color.new(color.black, 70),
+    border_width = 1, border_color = color.new(color.gray, 70),
+    frame_width  = 1, frame_color  = color.new(color.gray, 50))
+
+th(c, r, txt)      => table.cell(tbl, c, r, txt, text_color=color.silver, text_size=size.tiny)
+td(c, r, txt, clr) => table.cell(tbl, c, r, txt, text_color=clr,          text_size=size.small)
+
+if barstate.islast
+    td(0, 0, "RICH TRADER",   color.white)
+    td(1, 0, syminfo.ticker,  color.yellow)
+
+    sc_clr = math.abs(score) >= i_min_sc ? (score > 0 ? color.lime : color.red) : color.gray
+    th(0,  1, "SCORE");  td(1,  1, str.tostring(score) + "/6", sc_clr)
+    th(0,  2, "EMA20");  td(1,  2, s1 > 0 ? "▲ BULL" : "▼ BEAR", sc(s1))
+    th(0,  3, "MOM20");  td(1,  3, s2 > 0 ? "▲ BULL" : "▼ BEAR", sc(s2))
+    th(0,  4, "GAP");    td(1,  4, s3 > 0 ? "▲ UP" : s3 < 0 ? "▼ DOWN" : "— FLAT", sc(s3))
+    th(0,  5, "RSI");    td(1,  5, str.tostring(math.round(rsi_d, 1)),
+        rsi_d < i_rsi_os ? color.lime : rsi_d > i_rsi_ob ? color.red : color.gray)
+    th(0,  6, "HR EMA"); td(1,  6, s5 > 0 ? "▲ BULL" : "▼ BEAR", sc(s5))
+    th(0,  7, "EMA50");  td(1,  7, s6 > 0 ? "▲ BULL" : "▼ BEAR", sc(s6))
+    th(0,  8, "ATR");    td(1,  8, str.tostring(math.round(atr, 2)), color.white)
+    th(0,  9, "SL / TP"); td(1, 9,
+        str.tostring(math.round(i_sl_mult * atr, 2)) + " / " +
+        str.tostring(math.round(i_tp_mult * atr, 2)), color.silver)
+
+    sess_txt = in_entry ? "ENTRY ✓" : in_exit ? "03:00 EXIT" :
+        bj_min >= 630 or bj_h < 3 ? "EXIT 03:00" : "CLOSED"
+    sess_clr = in_entry ? color.lime : in_exit ? color.red :
+        bj_min >= 630 or bj_h < 3 ? color.yellow : color.gray
+    th(0, 10, "SESSION"); td(1, 10, sess_txt, sess_clr)
