@@ -102,12 +102,19 @@ if barstate.islast
     score_c = math.abs(score) >= min_score ? (score>0 ? color.lime : color.red) : color.gray
     table.cell(t,0,1,"SCORE", text_color=color.silver, text_size=size.tiny)
     table.cell(t,1,1,str.tostring(score)+"/6", text_color=score_c, text_size=size.small)
-    table.cell(t,0,2,"EMA20",  text_color=color.silver,text_size=size.tiny); table.cell(t,1,2,s1>0?"▲":"▼",text_color=sc(s1),text_size=size.small)
-    table.cell(t,0,3,"MOM20",  text_color=color.silver,text_size=size.tiny); table.cell(t,1,3,s2>0?"▲":"▼",text_color=sc(s2),text_size=size.small)
-    table.cell(t,0,4,"GAP",    text_color=color.silver,text_size=size.tiny); table.cell(t,1,4,s3>0?"▲":s3<0?"▼":"—",text_color=sc(s3),text_size=size.small)
-    table.cell(t,0,5,"RSI14",  text_color=color.silver,text_size=size.tiny); table.cell(t,1,5,str.tostring(math.round(rsi14,1)),text_color=rsi14<40?color.lime:rsi14>60?color.red:color.gray,text_size=size.small)
-    table.cell(t,0,6,"HR-EMA", text_color=color.silver,text_size=size.tiny); table.cell(t,1,6,s5>0?"▲":"▼",text_color=sc(s5),text_size=size.small)
-    table.cell(t,0,7,"EMA50",  text_color=color.silver,text_size=size.tiny); table.cell(t,1,7,s6>0?"▲":"▼",text_color=sc(s6),text_size=size.small)
-    sess_t = in_entry?"ENTRY ✓":in_exit?"EXIT":bj_h<3 or bj_min>=entry_s?"IN POS":"CLOSED"
-    sess_c = in_entry?color.lime:in_exit?color.red:bj_h<3 or bj_min>=entry_s?color.yellow:color.gray
-    table.cell(t,0,8,"SESSION",text_color=color.silver,text_size=size.tiny); table.cell(t,1,8,sess_t,text_color=sess_c,text_size=size.small)
+    table.cell(t,0,2,"EMA20",  text_color=color.silver, text_size=size.tiny)
+    table.cell(t,1,2,s1>0?"▲":"▼", text_color=sc(s1), text_size=size.small)
+    table.cell(t,0,3,"MOM20",  text_color=color.silver, text_size=size.tiny)
+    table.cell(t,1,3,s2>0?"▲":"▼", text_color=sc(s2), text_size=size.small)
+    table.cell(t,0,4,"GAP",    text_color=color.silver, text_size=size.tiny)
+    table.cell(t,1,4,s3>0?"▲":s3<0?"▼":"—", text_color=sc(s3), text_size=size.small)
+    table.cell(t,0,5,"RSI14",  text_color=color.silver, text_size=size.tiny)
+    table.cell(t,1,5,str.tostring(math.round(rsi14,1)), text_color=rsi14<40?color.lime:rsi14>60?color.red:color.gray, text_size=size.small)
+    table.cell(t,0,6,"HR-EMA", text_color=color.silver, text_size=size.tiny)
+    table.cell(t,1,6,s5>0?"▲":"▼", text_color=sc(s5), text_size=size.small)
+    table.cell(t,0,7,"EMA50",  text_color=color.silver, text_size=size.tiny)
+    table.cell(t,1,7,s6>0?"▲":"▼", text_color=sc(s6), text_size=size.small)
+    sess_t = in_entry ? "ENTRY ✓" : in_exit ? "EXIT" : bj_h < 3 or bj_min >= entry_s ? "IN POS" : "CLOSED"
+    sess_c = in_entry ? color.lime  : in_exit ? color.red : bj_h < 3 or bj_min >= entry_s ? color.yellow : color.gray
+    table.cell(t,0,8,"SESSION", text_color=color.silver, text_size=size.tiny)
+    table.cell(t,1,8,sess_t,    text_color=sess_c,       text_size=size.small)
