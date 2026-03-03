@@ -187,6 +187,67 @@ function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+function parsePnlUsd(str) {
+  if (!str) return 0;
+  return parseFloat(str.replace(/[$,+]/g, '')) || 0;
+}
+
+// ── Live Bar ──
+let _pnlData = [];
+
+function updateCountdown() {
+  const el = document.getElementById('countdown');
+  if (!el) return;
+  const bj = bjNow();
+  const h = bj.getHours();
+
+  let closeTime = new Date(bj.getTime());
+  if (h >= 9) {
+    closeTime.setDate(closeTime.getDate() + 1);
+    closeTime.setHours(3, 0, 0, 0);
+  } else if (h < 3) {
+    closeTime.setHours(3, 0, 0, 0);
+  } else {
+    el.textContent = 'CLOSED';
+    el.className = 'live-value red';
+    return;
+  }
+
+  const diff = closeTime - bj;
+  if (diff <= 0) {
+    el.textContent = 'CLOSED';
+    el.className = 'live-value red';
+    return;
+  }
+
+  const totalSecs = Math.floor(diff / 1000);
+  const hrs  = Math.floor(totalSecs / 3600);
+  const mins = Math.floor((totalSecs % 3600) / 60);
+  const secs = totalSecs % 60;
+  el.textContent = `${pad2(hrs)}:${pad2(mins)}:${pad2(secs)}`;
+  el.className = `live-value ${hrs < 1 ? 'red' : hrs < 3 ? 'gold' : 'blue'}`;
+}
+
+function updatePortfolioPnl() {
+  if (!_pnlData.length) return;
+
+  const total = _pnlData.reduce((sum, p) => sum + parsePnlUsd(p.pnl_usd), 0);
+  const sign  = total >= 0 ? '+' : '';
+  const pnlEl = document.getElementById('portfolio-pnl');
+  if (pnlEl) {
+    pnlEl.textContent = `${sign}$${Math.round(total)}`;
+    pnlEl.className   = `live-value ${total > 0 ? 'green' : total < 0 ? 'red' : 'muted'}`;
+  }
+
+  const cntEl = document.getElementById('position-count');
+  if (cntEl) {
+    const open   = _pnlData.filter(p => p.status === 'winning' || p.status === 'losing').length;
+    const closed = _pnlData.filter(p => ['hit_tp','hit_sl','time_exit'].includes(p.status)).length;
+    cntEl.textContent = `${open} OPEN · ${closed} CLOSED`;
+    cntEl.className   = 'live-value muted';
+  }
+}
+
 // ── Ticker Tape ──
 function buildTicker(strategies) {
   if (!strategies || !strategies.length) return;
@@ -284,6 +345,8 @@ async function fetchPnl() {
 
     const pnlMap = {};
     data.pnl.forEach(p => { pnlMap[p.symbol] = p; });
+    _pnlData = data.pnl;
+    updatePortfolioPnl();
 
     renderAll(_strategies, pnlMap);
     buildTicker(_strategies);
@@ -399,7 +462,9 @@ async function fetchHistory() {
 document.addEventListener('DOMContentLoaded', () => {
   updateClock();
   updateDate();
+  updateCountdown();
   setInterval(updateClock, 1000);
+  setInterval(updateCountdown, 1000);
 
   document.getElementById('refresh-btn').addEventListener('click', () => fetchStrategies(true));
 

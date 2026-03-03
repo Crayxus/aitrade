@@ -154,6 +154,59 @@ header {
 .spinning { animation: spin .8s linear infinite; display: inline-block; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ── Live Stats Bar ── */
+#live-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 28px;
+  gap: 0;
+}
+
+.live-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 32px;
+}
+
+.live-divider {
+  width: 1px;
+  height: 28px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.live-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
+.live-value {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  transition: color .3s;
+}
+
+.live-value.green { color: var(--green); }
+.live-value.red   { color: var(--red); }
+.live-value.gold  { color: var(--gold); }
+.live-value.blue  { color: var(--blue); }
+.live-value.muted { color: var(--muted2); }
+
+@media (max-width: 650px) {
+  #live-bar { flex-wrap: wrap; gap: 8px; padding: 10px 16px; }
+  .live-item { padding: 0 16px; }
+  .live-value { font-size: 18px; }
+}
+
 /* ── Main ── */
 main { padding: 24px 28px; max-width: 1440px; margin: 0 auto; }
 
