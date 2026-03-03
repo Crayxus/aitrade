@@ -207,6 +207,105 @@ header {
   .live-value { font-size: 18px; }
 }
 
+/* ── Daily Performance Bar ── */
+#perf-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 28px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.perf-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 1.5px;
+  flex-shrink: 0;
+}
+
+.perf-segs {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  height: 36px;
+}
+
+.perf-seg {
+  flex: 1;
+  border-radius: 5px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  transition: all .4s ease;
+  cursor: default;
+  overflow: hidden;
+}
+
+.perf-seg.win  {
+  background: var(--green-bg);
+  border-color: rgba(0,217,126,.35);
+  box-shadow: 0 0 8px rgba(0,217,126,.15);
+}
+.perf-seg.loss {
+  background: var(--red-bg);
+  border-color: rgba(255,77,106,.35);
+  box-shadow: 0 0 8px rgba(255,77,106,.15);
+}
+.perf-seg.exit {
+  background: rgba(167,139,250,.1);
+  border-color: rgba(167,139,250,.35);
+}
+.perf-seg.neutral {
+  background: var(--surface2);
+  border-color: var(--border);
+}
+
+.perf-sym {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.perf-seg.win  .perf-sym { color: var(--green); }
+.perf-seg.loss .perf-sym { color: var(--red); }
+.perf-seg.exit .perf-sym { color: #a78bfa; }
+.perf-seg.neutral .perf-sym { color: var(--muted); }
+
+.perf-pct {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+}
+.perf-seg.win  .perf-pct { color: var(--green); }
+.perf-seg.loss .perf-pct { color: var(--red); }
+.perf-seg.exit .perf-pct { color: #a78bfa; }
+.perf-seg.neutral .perf-pct { color: var(--muted); display: none; }
+
+.perf-stats {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+  min-width: 80px;
+  text-align: right;
+}
+.perf-stats .green  { color: var(--green); }
+.perf-stats .red    { color: var(--red); }
+.perf-stats .muted2 { color: var(--muted2); }
+.perf-stats .fw     { font-weight: 700; }
+
+@media (max-width: 650px) {
+  #perf-bar { padding: 8px 16px; gap: 10px; }
+  .perf-segs { height: 30px; }
+  .perf-pct { display: none; }
+}
+
 /* ── Main ── */
 main { padding: 24px 28px; max-width: 1440px; margin: 0 auto; }
 

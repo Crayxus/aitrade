@@ -16,17 +16,18 @@ function updateClock() {
   const lbl = document.getElementById('session-label');
   const pill = dot.parentElement;
 
+  // Session: entry 09:30–10:30, in-position 10:30–03:00(+1d), closed 03:00–09:30
   if (min >= 570 && min < 630) {
     dot.className = 'dot dot-green';
     lbl.textContent = 'ENTRY WINDOW';
     pill.style.borderColor = 'rgba(0,217,126,.3)';
-  } else if (min >= 630 && min < 1320) {
+  } else if (min >= 630 || h < 3) {
     dot.className = 'dot dot-yellow';
-    lbl.textContent = 'IN POSITION';
+    lbl.textContent = 'EXIT 03:00';
     pill.style.borderColor = 'rgba(245,200,66,.3)';
   } else {
     dot.className = 'dot dot-red';
-    lbl.textContent = 'MARKET CLOSED';
+    lbl.textContent = 'CLOSED · 09:30';
     pill.style.borderColor = '';
   }
 }
@@ -245,6 +246,40 @@ function updatePortfolioPnl() {
     const closed = _pnlData.filter(p => ['hit_tp','hit_sl','time_exit'].includes(p.status)).length;
     cntEl.textContent = `${open} OPEN · ${closed} CLOSED`;
     cntEl.className   = 'live-value muted';
+  }
+
+  updatePerfBar();
+}
+
+function updatePerfBar() {
+  if (!_pnlData.length) return;
+  const total   = _pnlData.length;
+  const wins    = _pnlData.filter(p => p.status === 'winning'  || p.status === 'hit_tp').length;
+  const losses  = _pnlData.filter(p => p.status === 'losing'   || p.status === 'hit_sl').length;
+  const exits   = _pnlData.filter(p => p.status === 'time_exit').length;
+
+  const segsEl  = document.getElementById('perf-segs');
+  const statsEl = document.getElementById('perf-stats');
+
+  if (segsEl) {
+    segsEl.innerHTML = _pnlData.map(p => {
+      const cls = (p.status === 'winning' || p.status === 'hit_tp') ? 'win'
+                : (p.status === 'losing'  || p.status === 'hit_sl') ? 'loss'
+                : p.status === 'time_exit' ? 'exit'
+                : 'neutral';
+      const sym = escHtml(p.symbol).replace('USD','').replace('=X','');
+      return `<div class="perf-seg ${cls}" title="${escHtml(p.symbol)} ${escHtml(p.pnl_pct)} ${escHtml(p.pnl_usd)}">
+        <span class="perf-sym">${sym}</span>
+        <span class="perf-pct">${escHtml(p.pnl_pct)}</span>
+      </div>`;
+    }).join('');
+  }
+
+  if (statsEl) {
+    const rate = total > 0 ? Math.round(wins / total * 100) : 0;
+    const cls  = wins > losses ? 'green' : wins < losses ? 'red' : 'muted2';
+    statsEl.innerHTML =
+      `<span class="${cls} fw">${wins}W ${losses}L</span>&nbsp;<span class="muted2">${rate}%</span>`;
   }
 }
 
