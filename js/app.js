@@ -94,6 +94,27 @@ function buildRangeBar(s, pnl) {
 </div>`;
 }
 
+// ── Confidence / Signal Row ──
+function buildSignalRow(s) {
+  if (!s.signals) return '';
+  const sigNames = { daily_ema: 'EMA', weekly_mom: 'MOM', gap: 'GAP', rsi: 'RSI', hourly: 'HR', ema50: 'E50' };
+  const sigs = Object.entries(s.signals).map(([k, icon]) => {
+    const cls = icon === '▲' ? 'sig-up' : icon === '▼' ? 'sig-dn' : 'sig-flat';
+    return `<span class="sig-item ${cls}">${icon} ${sigNames[k] || k}</span>`;
+  }).join('');
+  const barColor = s.direction === 'LONG' ? 'var(--green)' : 'var(--red)';
+  const pct = s.confidence_pct || '0%';
+  return `
+<div class="conf-row">
+  <div class="conf-left">
+    <span class="conf-label">CONF</span>
+    <div class="conf-track"><div class="conf-fill" style="width:${pct};background:${barColor}"></div></div>
+    <span class="conf-pct" style="color:${barColor}">${pct}</span>
+  </div>
+  <div class="sig-grid">${sigs}</div>
+</div>`;
+}
+
 // ── Stars ──
 function stars(n) {
   let s = '';
@@ -135,6 +156,7 @@ function renderCard(s, idx, pnl) {
   <div class="spark-wrap">${buildSparkline(s.sparkline, isLong)}</div>
 
   ${buildRangeBar(s, pnl)}
+  ${buildSignalRow(s)}
 
   <div class="card-meta">
     <div class="meta-cell">
@@ -331,6 +353,48 @@ async function fetchSummary() {
   } catch {}
 }
 
+// ── Trading History ──
+async function fetchHistory() {
+  try {
+    const res = await fetch('/api/history');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.history || !data.history.length) return;
+    const panel = document.getElementById('history-panel');
+    if (!panel) return;
+
+    const rows = data.history.map(d => {
+      const wc = d.wins > d.losses ? 'green' : d.wins < d.losses ? 'red' : 'blue';
+      const uc = (d.total_usd && !d.total_usd.startsWith('-')) ? 'green' : 'red';
+      const ap = (d.avg_pnl && !d.avg_pnl.startsWith('-')) ? 'green' : 'red';
+      return `<tr class="hist-row">
+        <td class="hist-date">${escHtml(d.date)}</td>
+        <td class="${wc}">${d.wins}W / ${d.losses}L</td>
+        <td class="${wc}">${d.win_rate}%</td>
+        <td class="${ap}">${escHtml(d.avg_pnl)}</td>
+        <td class="${uc}">${escHtml(d.total_usd || '–')}</td>
+        <td>${d.best ? `<span class="hist-green">${escHtml(d.best.symbol)} ${escHtml(d.best.pnl)}</span>` : '–'}</td>
+        <td>${d.worst ? `<span class="hist-red">${escHtml(d.worst.symbol)} ${escHtml(d.worst.pnl)}</span>` : '–'}</td>
+      </tr>`;
+    }).join('');
+
+    panel.style.display = 'block';
+    panel.innerHTML = `
+      <div class="hist-header">
+        <span class="hist-title">TRADING HISTORY</span>
+        <span class="hist-sub">近30天记录</span>
+      </div>
+      <div class="hist-scroll">
+        <table class="hist-table">
+          <thead><tr>
+            <th>DATE</th><th>W/L</th><th>WIN RATE</th><th>AVG P&L</th><th>TOTAL USD</th><th>BEST</th><th>WORST</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  } catch {}
+}
+
 // ── Init ──
 document.addEventListener('DOMContentLoaded', () => {
   updateClock();
@@ -340,5 +404,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('refresh-btn').addEventListener('click', () => fetchStrategies(true));
 
   fetchStrategies(false);
+  fetchHistory();
   setInterval(() => { fetchPnl(); fetchSummary(); }, 5 * 60 * 1000);
+  setInterval(fetchHistory, 15 * 60 * 1000);
 });

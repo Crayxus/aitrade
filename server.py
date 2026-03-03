@@ -1,62 +1,84 @@
 import os
+import json
 import datetime
 import numpy as np
 import pandas as pd
 import yfinance as yf
+from pathlib import Path
 from flask import Flask, jsonify, send_from_directory
 
 app = Flask(__name__, static_folder='.')
-_cache = {}  # {date_str: strategies_list}
+_cache    = {}   # {date_str: strategies_list}
+_pnl_snap = {}   # {date_str: final_pnl}  in-memory only
+
+# ── Persistent history ────────────────────────────────────────────────────────
+HISTORY_FILE = Path(__file__).parent / "data" / "history.json"
+
+def load_history():
+    try:
+        HISTORY_FILE.parent.mkdir(exist_ok=True)
+        if HISTORY_FILE.exists():
+            return json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+def save_history(history):
+    try:
+        HISTORY_FILE.parent.mkdir(exist_ok=True)
+        HISTORY_FILE.write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"[WARN] save_history: {e}")
+
+_history = load_history()   # {date_str: {wins, losses, avg_pnl, detail, ...}}
 
 # ── 6 Instruments ────────────────────────────────────────────────────────────
-# NAS100 uses NQ=F (futures, trades 24h) so Beijing 9:30 data exists
-UNIFIED_EXIT = "03:00"   # Beijing time next morning — US session peak + overnight close
-RISK_USD     = 200       # USD risk per trade (suitable for $10K–$20K account at 1–2% risk)
+UNIFIED_EXIT = "03:00"
+RISK_USD     = 200
 
-# USD value per 1-unit price move per 1 standard lot
 LOT_VALUES = {
-    "XAUUSD": 100,     # 100 oz/lot → $1 move = $100
-    "NAS100": 1,       # CFD $1/pt per lot
-    "BTCUSD": 1,       # 1 BTC/lot → $1 move = $1
-    "HK50":   1.3,     # HKD 10/pt ≈ USD 1.3/pt per lot
-    "EURUSD": 100000,  # 100K EUR/lot → 0.0001 move = $10
-    "GBPUSD": 100000,  # 100K GBP/lot → 0.0001 move = $10
-    "USOIL":  100,     # 100 barrels/lot → $1 move = $100
+    "XAUUSD": 100,
+    "NAS100": 1,
+    "BTCUSD": 1,
+    "EURUSD": 100000,
+    "GBPUSD": 100000,
+    "USOIL":  100,
 }
 
 STRATEGY_CONFIGS = [
     {
-        "symbol": "XAUUSD",  "display_name": "Gold",          "ticker": "GC=F",
+        "symbol": "XAUUSD", "display_name": "Gold",          "ticker": "GC=F",
         "strategy": "ORB",      "win_rate": 4, "rr_ratio": "1:2.0",
         "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": UNIFIED_EXIT,
     },
     {
-        "symbol": "NAS100",  "display_name": "Nasdaq 100",     "ticker": "NQ=F",
+        "symbol": "NAS100", "display_name": "Nasdaq 100",    "ticker": "NQ=F",
         "strategy": "Gap & Go", "win_rate": 4, "rr_ratio": "1:2.0",
         "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": UNIFIED_EXIT,
     },
     {
-        "symbol": "BTCUSD",  "display_name": "Bitcoin",        "ticker": "BTC-USD",
+        "symbol": "BTCUSD", "display_name": "Bitcoin",       "ticker": "BTC-USD",
         "strategy": "Momentum", "win_rate": 3, "rr_ratio": "1:2.5",
         "sl_atr": 1.0, "tp_atr": 2.5, "exit_time": UNIFIED_EXIT,
     },
     {
-        "symbol": "EURUSD",  "display_name": "Euro / USD",     "ticker": "EURUSD=X",
+        "symbol": "EURUSD", "display_name": "Euro / USD",    "ticker": "EURUSD=X",
         "strategy": "Trend",    "win_rate": 3, "rr_ratio": "1:1.5",
         "sl_atr": 0.8, "tp_atr": 1.2, "exit_time": UNIFIED_EXIT,
     },
     {
-        "symbol": "GBPUSD",  "display_name": "GBP / USD",      "ticker": "GBPUSD=X",
+        "symbol": "GBPUSD", "display_name": "GBP / USD",     "ticker": "GBPUSD=X",
         "strategy": "Breakout", "win_rate": 3, "rr_ratio": "1:2.0",
         "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": UNIFIED_EXIT,
     },
     {
-        "symbol": "USOIL",   "display_name": "Crude Oil WTI",  "ticker": "CL=F",
+        "symbol": "USOIL",  "display_name": "Crude Oil WTI", "ticker": "CL=F",
         "strategy": "Breakout", "win_rate": 3, "rr_ratio": "1:2.0",
         "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": UNIFIED_EXIT,
     },
 ]
 
+# ── Technical Helpers ─────────────────────────────────────────────────────────
 
 def fmt_price(n, ref):
     if ref >= 10000: return round(float(n), 0)
@@ -65,13 +87,11 @@ def fmt_price(n, ref):
     if ref >= 1:     return round(float(n), 4)
     return round(float(n), 5)
 
-
 def calc_atr(high, low, close, period=14):
     tr = np.maximum(high[1:] - low[1:],
          np.maximum(np.abs(high[1:] - close[:-1]),
                     np.abs(low[1:] - close[:-1])))
     return float(np.mean(tr[-period:]))
-
 
 def calc_ema(prices, period):
     alpha = 2 / (period + 1)
@@ -80,103 +100,124 @@ def calc_ema(prices, period):
         ema = alpha * float(p) + (1 - alpha) * ema
     return float(ema)
 
+def calc_rsi(prices, period=14):
+    d = np.diff(prices.astype(float))
+    gains  = np.where(d > 0, d, 0.0)
+    losses = np.where(d < 0, -d, 0.0)
+    ag = np.mean(gains[-period:])
+    al = np.mean(losses[-period:])
+    if al == 0: return 100.0
+    return float(100 - 100 / (1 + ag / al))
 
 def make_sparkline(close, n=12):
     data = [float(v) for v in close[-n:]]
     lo, hi = min(data), max(data)
-    if hi == lo:
-        return [50.0] * len(data)
+    if hi == lo: return [50.0] * len(data)
     return [round((v - lo) / (hi - lo) * 100, 1) for v in data]
 
+def calc_recommended_lots(symbol, entry_mid, stop_loss):
+    sl_dist = abs(float(entry_mid) - float(stop_loss))
+    lot_val = LOT_VALUES.get(symbol, 1)
+    if sl_dist == 0 or lot_val == 0: return 0.10
+    raw = RISK_USD / (sl_dist * lot_val)
+    for std in [0.01, 0.02, 0.05, 0.10, 0.20, 0.50, 1.0, 2.0, 5.0, 10.0]:
+        if raw <= std * 1.6: return std
+    return 1.0
+
+# ── Enhanced Direction Signal ─────────────────────────────────────────────────
+
+def score_direction(close_d, high_d, low_d, close_h, gap_pct, rsi, cfg):
+    """
+    Multi-signal direction scoring. Returns (direction, confidence, signals_dict).
+    Signals: daily trend, weekly momentum, gap, RSI mean-reversion, hourly trend.
+    All must be >= 3/5 agreement to trade; otherwise direction still chosen by majority.
+    """
+    ema20_d = calc_ema(close_d, 20)
+    ema50_d = calc_ema(close_d, min(50, len(close_d)-1))
+    mom5    = (close_d[-1] - close_d[-6]) / close_d[-6]
+    mom20   = (close_d[-1] - close_d[-21]) / close_d[-21] if len(close_d) > 21 else mom5
+
+    # Hourly trend (last 20 x 1h bars)
+    ema20_h = calc_ema(close_h, min(20, len(close_h)-1)) if len(close_h) >= 5 else close_h[-1]
+
+    # 1  Daily trend (price vs EMA20)
+    s1 = 1 if close_d[-1] > ema20_d else -1
+    # 2  Weekly momentum (20-day return)
+    s2 = 1 if mom20 > 0 else -1
+    # 3  Gap direction (today open vs yesterday close)
+    s3 = 1 if gap_pct > 0.0005 else (-1 if gap_pct < -0.0005 else 0)
+    # 4  RSI mean-reversion (oversold → bullish bias; overbought → bearish)
+    s4 = 1 if rsi < 40 else (-1 if rsi > 60 else 0)
+    # 5  Hourly trend
+    s5 = 1 if close_h[-1] > ema20_h else -1
+    # 6  Price vs EMA50 (longer trend)
+    s6 = 1 if close_d[-1] > ema50_d else -1
+
+    signals = {"daily_ema": s1, "weekly_mom": s2, "gap": s3,
+               "rsi": s4, "hourly": s5, "ema50": s6}
+    score = sum(signals.values())
+    direction  = "LONG" if score >= 0 else "SHORT"
+    confidence = round(abs(score) / 6, 2)   # 0.0 – 1.0
+
+    return direction, confidence, signals
+
+# ── Entry Window ─────────────────────────────────────────────────────────────
 
 def get_window_bars(isub):
-    """
-    Return 5m bars that fall within Beijing 9:30–10:00 today.
-    Beijing 9:30 = UTC 01:30 / Beijing 10:00 = UTC 02:00
-    """
+    """Beijing 9:30-10:00 = UTC 01:30-02:00"""
     try:
         df = isub.copy()
         if df.index.tz is None:
             df.index = df.index.tz_localize('UTC')
         else:
             df.index = df.index.tz_convert('UTC')
-
         today_utc = pd.Timestamp.utcnow().normalize()
         win_start = today_utc + pd.Timedelta(hours=1, minutes=30)
         win_end   = today_utc + pd.Timedelta(hours=2)
-
         return df[(df.index >= win_start) & (df.index <= win_end)]
     except Exception:
         return pd.DataFrame()
 
-
 def entry_from_window(isub, atr, current, direction, sl_m, tp_m):
-    """
-    Derive entry_low / entry_high from Beijing 9:30-10:00 bars.
-    Falls back to ±ATR buffer around current price if window unavailable.
-    Returns dict with entry_low, entry_high, entry_mid, entry_source.
-    """
     window = get_window_bars(isub)
-
     if len(window) >= 2:
         closes = np.asarray(window['Close'], dtype=float).flatten()
-        lo = float(np.min(closes))
-        hi = float(np.max(closes))
-        mid = float(np.mean(closes))
-        src = "09:30–10:00 avg"
+        lo, hi, mid = float(np.min(closes)), float(np.max(closes)), float(np.mean(closes))
+        src = "09:30–10:00"
     else:
-        # Window not yet reached (pre-9:30) or no data: use current price ±buffer
-        if direction == "LONG":
-            lo  = current - 0.20 * atr
-            hi  = current + 0.08 * atr
-        else:
-            hi  = current + 0.20 * atr
-            lo  = current - 0.08 * atr
+        lo  = current - (0.20 if direction == "LONG" else -0.08) * atr
+        hi  = current + (0.08 if direction == "LONG" else  0.20) * atr
         mid = (lo + hi) / 2
-        src = "pre-window est."
+        src = "pre-window"
 
     ref = mid
-    entry_low  = fmt_price(lo,  ref)
-    entry_high = fmt_price(hi,  ref)
-    entry_mid  = fmt_price(mid, ref)
-
+    el, eh = fmt_price(lo, ref), fmt_price(hi, ref)
     if direction == "LONG":
-        stop_loss   = fmt_price(entry_low  - sl_m * atr, ref)
-        take_profit = fmt_price(entry_high + tp_m * atr, ref)
-        tp_pct = f"+{(take_profit - entry_high) / entry_high * 100:.2f}%"
-        sl_pct = f"-{(entry_low - stop_loss)   / entry_low  * 100:.2f}%"
+        sl = fmt_price(lo  - sl_m * atr, ref)
+        tp = fmt_price(hi  + tp_m * atr, ref)
+        tp_pct = f"+{(tp - eh) / eh * 100:.2f}%"
+        sl_pct = f"-{(el - sl) / el * 100:.2f}%"
     else:
-        stop_loss   = fmt_price(entry_high + sl_m * atr, ref)
-        take_profit = fmt_price(entry_low  - tp_m * atr, ref)
-        tp_pct = f"+{(entry_low  - take_profit) / entry_low  * 100:.2f}%"
-        sl_pct = f"-{(stop_loss  - entry_high)  / entry_high * 100:.2f}%"
+        sl = fmt_price(hi  + sl_m * atr, ref)
+        tp = fmt_price(lo  - tp_m * atr, ref)
+        tp_pct = f"+{(el - tp) / el * 100:.2f}%"
+        sl_pct = f"-{(sl - eh) / eh * 100:.2f}%"
 
-    return {
-        "entry_low":    entry_low,
-        "entry_high":   entry_high,
-        "entry_mid":    entry_mid,
-        "stop_loss":    stop_loss,
-        "take_profit":  take_profit,
-        "tp_pct":       tp_pct,
-        "sl_pct":       sl_pct,
-        "entry_source": src,
-    }
+    return dict(entry_low=el, entry_high=eh, entry_mid=fmt_price(mid, ref),
+                stop_loss=sl, take_profit=tp, tp_pct=tp_pct, sl_pct=sl_pct,
+                entry_source=src)
 
+# ── Build Strategies ──────────────────────────────────────────────────────────
 
 def build_strategies():
-    tickers_str = " ".join(c["ticker"] for c in STRATEGY_CONFIGS)
+    tickers = " ".join(c["ticker"] for c in STRATEGY_CONFIGS)
 
-    # Daily (30d) – ATR, EMA, sparkline
-    df_daily = yf.download(
-        tickers_str, period="30d", interval="1d",
-        progress=False, auto_adjust=True, group_by="ticker"
-    )
-
-    # 5-min intraday (last 2 days) – real-time price + 9:30-10:00 window
-    df_intra = yf.download(
-        tickers_str, period="2d", interval="5m",
-        progress=False, auto_adjust=True, group_by="ticker"
-    )
+    df_daily = yf.download(tickers, period="60d", interval="1d",
+                           progress=False, auto_adjust=True, group_by="ticker")
+    df_intra = yf.download(tickers, period="2d",  interval="5m",
+                           progress=False, auto_adjust=True, group_by="ticker")
+    df_hourly = yf.download(tickers, period="5d", interval="1h",
+                            progress=False, auto_adjust=True, group_by="ticker")
 
     n = len(STRATEGY_CONFIGS)
     results = []
@@ -184,43 +225,33 @@ def build_strategies():
     for cfg in STRATEGY_CONFIGS:
         try:
             t = cfg["ticker"]
-            dsub = (df_daily[t] if n > 1 else df_daily).dropna()
-            isub = (df_intra[t] if n > 1 else df_intra).dropna()
+            dsub = (df_daily[t]  if n > 1 else df_daily).dropna()
+            isub = (df_intra[t]  if n > 1 else df_intra).dropna()
+            hsub = (df_hourly[t] if n > 1 else df_hourly).dropna()
 
-            if len(dsub) < 15:
-                raise ValueError(f"daily: {len(dsub)} rows")
+            if len(dsub) < 21: raise ValueError(f"daily: {len(dsub)} rows")
 
-            close_d  = np.asarray(dsub["Close"], dtype=float).flatten()
-            high_d   = np.asarray(dsub["High"],  dtype=float).flatten()
-            low_d    = np.asarray(dsub["Low"],   dtype=float).flatten()
+            close_d = np.asarray(dsub["Close"], dtype=float).flatten()
+            high_d  = np.asarray(dsub["High"],  dtype=float).flatten()
+            low_d   = np.asarray(dsub["Low"],   dtype=float).flatten()
+            close_h = np.asarray(hsub["Close"], dtype=float).flatten() if len(hsub) > 5 else close_d[-20:]
 
-            atr       = calc_atr(high_d, low_d, close_d)
-            ema20     = calc_ema(close_d, 20)
-            ema50     = calc_ema(close_d, min(50, len(close_d) - 1))
+            atr        = calc_atr(high_d, low_d, close_d)
+            atr_avg20  = calc_atr(high_d[-40:], low_d[-40:], close_d[-40:], period=20)
+            rsi        = calc_rsi(close_d)
             prev_close = close_d[-2]
-            mom5      = (close_d[-1] - close_d[-6]) / close_d[-6]
-            high10    = float(np.max(high_d[-10:]))
-            low10     = float(np.min(low_d[-10:]))
 
-            # Real-time current price from intraday
             current    = float(np.asarray(isub["Close"], dtype=float).flatten()[-1]) if len(isub) > 0 else close_d[-1]
             today_open = float(np.asarray(isub["Open"],  dtype=float).flatten()[0])  if len(isub) > 0 else close_d[-1]
-            gap_pct = (today_open - prev_close) / prev_close
+            gap_pct    = (today_open - prev_close) / prev_close
 
-            # Direction signal
-            strat = cfg["strategy"]
-            if strat in ("ORB", "Open ORB"):
-                direction = "LONG" if gap_pct >= 0 else "SHORT"
-            elif strat == "Gap & Go":
-                direction = "LONG" if gap_pct > 0 else "SHORT"
-            elif strat == "Momentum":
-                direction = "LONG" if mom5 > 0 else "SHORT"
-            elif strat == "Trend":
-                direction = "LONG" if ema20 > ema50 else "SHORT"
-            else:  # Breakout
-                direction = "LONG" if abs(current - high10) <= abs(current - low10) else "SHORT"
+            # Volatility filter: skip if ATR is extreme (< 0.3x or > 3x average)
+            atr_ratio = atr / atr_avg20 if atr_avg20 > 0 else 1.0
+            vol_ok = 0.3 <= atr_ratio <= 3.0
 
-            # Entry from 9:30-10:00 window
+            direction, confidence, signals = score_direction(
+                close_d, high_d, low_d, close_h, gap_pct, rsi, cfg)
+
             levels = entry_from_window(isub, atr, current, direction,
                                        cfg["sl_atr"], cfg["tp_atr"])
 
@@ -229,46 +260,50 @@ def build_strategies():
             risk_amt   = abs(float(levels["entry_mid"]) - float(levels["stop_loss"])) * lv * lots
             profit_amt = abs(float(levels["take_profit"]) - float(levels["entry_mid"])) * lv * lots
 
-            results.append({
-                "symbol":            cfg["symbol"],
-                "display_name":      cfg["display_name"],
-                "strategy":          strat,
-                "direction":         direction,
-                "entry_low":         levels["entry_low"],
-                "entry_high":        levels["entry_high"],
-                "entry_mid":         levels["entry_mid"],
-                "entry_source":      levels["entry_source"],
-                "take_profit":       levels["take_profit"],
-                "tp_pct":            levels["tp_pct"],
-                "stop_loss":         levels["stop_loss"],
-                "sl_pct":            levels["sl_pct"],
-                "exit_time":         cfg["exit_time"],
-                "win_rate":          cfg["win_rate"],
-                "rr_ratio":          cfg["rr_ratio"],
-                "atr":               fmt_price(atr, current),
-                "ema20":             fmt_price(ema20, current),
-                "sparkline":         make_sparkline(close_d),
-                "current":           fmt_price(current, current),
-                "mom_pct":           f"{gap_pct * 100:+.2f}%",
-                "recommended_lots":  lots,
-                "risk_usd":          round(risk_amt),
-                "profit_usd":        round(profit_amt),
-            })
+            # Signal summary for display
+            sig_icons = {k: ("▲" if v > 0 else "▼" if v < 0 else "—") for k, v in signals.items()}
 
+            results.append({
+                "symbol":           cfg["symbol"],
+                "display_name":     cfg["display_name"],
+                "strategy":         cfg["strategy"],
+                "direction":        direction,
+                "confidence":       confidence,
+                "confidence_pct":   f"{int(confidence * 100)}%",
+                "signals":          sig_icons,
+                "vol_ok":           vol_ok,
+                "rsi":              round(rsi, 1),
+                "entry_low":        levels["entry_low"],
+                "entry_high":       levels["entry_high"],
+                "entry_mid":        levels["entry_mid"],
+                "entry_source":     levels["entry_source"],
+                "take_profit":      levels["take_profit"],
+                "tp_pct":           levels["tp_pct"],
+                "stop_loss":        levels["stop_loss"],
+                "sl_pct":           levels["sl_pct"],
+                "exit_time":        cfg["exit_time"],
+                "win_rate":         cfg["win_rate"],
+                "rr_ratio":         cfg["rr_ratio"],
+                "atr":              fmt_price(atr, current),
+                "sparkline":        make_sparkline(close_d),
+                "current":          fmt_price(current, current),
+                "mom_pct":          f"{gap_pct * 100:+.2f}%",
+                "recommended_lots": lots,
+                "risk_usd":         round(risk_amt),
+                "profit_usd":       round(profit_amt),
+            })
         except Exception as e:
             print(f"[WARN] {cfg['symbol']}: {e}")
 
-    if not results:
-        raise RuntimeError("All fetches failed")
+    if not results: raise RuntimeError("All fetches failed")
     return results
 
+# ── Live Prices ───────────────────────────────────────────────────────────────
 
 def fetch_current_prices():
-    tickers_str = " ".join(c["ticker"] for c in STRATEGY_CONFIGS)
-    df = yf.download(
-        tickers_str, period="1d", interval="5m",
-        progress=False, auto_adjust=True, group_by="ticker"
-    )
+    tickers = " ".join(c["ticker"] for c in STRATEGY_CONFIGS)
+    df = yf.download(tickers, period="1d", interval="5m",
+                     progress=False, auto_adjust=True, group_by="ticker")
     n = len(STRATEGY_CONFIGS)
     prices = {}
     for cfg in STRATEGY_CONFIGS:
@@ -280,49 +315,29 @@ def fetch_current_prices():
             prices[cfg["symbol"]] = None
     return prices
 
-
-def calc_recommended_lots(symbol, entry_mid, stop_loss):
-    """Compute recommended lot size for RISK_USD per trade."""
-    sl_dist = abs(float(entry_mid) - float(stop_loss))
-    lot_val = LOT_VALUES.get(symbol, 1)
-    if sl_dist == 0 or lot_val == 0:
-        return 0.10
-    raw = RISK_USD / (sl_dist * lot_val)
-    # Snap to standard CFD sizes
-    for std in [0.01, 0.02, 0.05, 0.10, 0.20, 0.50, 1.0, 2.0, 5.0, 10.0]:
-        if raw <= std * 1.6:
-            return std
-    return 1.0
-
+# ── Exit Time ─────────────────────────────────────────────────────────────────
 
 def is_past_exit(exit_time_str):
-    """
-    Check if Beijing time has passed exit_time.
-    Handles next-day exits (e.g. "03:00"):
-      - If exit hour < 9, trigger only when we're past midnight (hour 0–8)
-        AND at/past the exit minute — avoids false trigger before trading starts.
-    """
     try:
-        bj_now = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
-        h, m   = map(int, exit_time_str.split(":"))
-        cur_min  = bj_now.hour * 60 + bj_now.minute
-        exit_min = h * 60 + m
-        if h < 9:   # next-day exit (after midnight)
-            return bj_now.hour < 9 and cur_min >= exit_min
-        else:
-            return cur_min >= exit_min
+        bj = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+        h, m = map(int, exit_time_str.split(":"))
+        cur = bj.hour * 60 + bj.minute
+        ext = h * 60 + m
+        if h < 9:   # next-day exit
+            return bj.hour < 9 and cur >= ext
+        return cur >= ext
     except Exception:
         return False
 
+# ── P&L Calc ─────────────────────────────────────────────────────────────────
 
 def calc_pnl(strategy, current_price):
-    if current_price is None:
-        return None
+    if current_price is None: return None
     direction   = strategy["direction"]
     entry_mid   = strategy["entry_mid"]
     take_profit = strategy["take_profit"]
     stop_loss   = strategy["stop_loss"]
-    exit_time   = strategy.get("exit_time", "22:00")
+    exit_time   = strategy.get("exit_time", UNIFIED_EXIT)
 
     if direction == "LONG":
         pnl_pct  = (current_price - entry_mid) / entry_mid * 100
@@ -335,54 +350,78 @@ def calc_pnl(strategy, current_price):
         progress = (entry_mid - current_price) / tp_dist if tp_dist else 0
         hit_tp, hit_sl = current_price <= take_profit, current_price >= stop_loss
 
-    if hit_tp:
-        status = "hit_tp"
-    elif hit_sl:
-        status = "hit_sl"
-    elif is_past_exit(exit_time):
-        # Time's up — force close at current price, whatever the P&L
-        status = "time_exit"
-    elif pnl_pct > 0:
-        status = "winning"
-    else:
-        status = "losing"
+    if hit_tp:        status = "hit_tp"
+    elif hit_sl:      status = "hit_sl"
+    elif is_past_exit(exit_time): status = "time_exit"
+    elif pnl_pct > 0: status = "winning"
+    else:             status = "losing"
 
     sign = "+" if pnl_pct >= 0 else ""
+    lv   = LOT_VALUES.get(strategy["symbol"], 1)
+    lots = strategy.get("recommended_lots", 0.1)
+    pnl_usd = round(pnl_pct / 100 * entry_mid * lv * lots)
+
     return {
         "symbol":        strategy["symbol"],
         "current_price": fmt_price(current_price, current_price),
         "entry_mid":     fmt_price(entry_mid, entry_mid),
         "pnl_pct":       f"{sign}{pnl_pct:.2f}%",
+        "pnl_usd":       f"{'+' if pnl_usd >= 0 else ''}${pnl_usd}",
         "pnl_value":     pnl_pct,
         "status":        status,
         "exit_time":     exit_time,
         "progress":      round(min(1.0, max(-0.5, progress)), 3),
     }
 
+# ── History Snapshot ──────────────────────────────────────────────────────────
 
-# ── Routes ───────────────────────────────────────────────────────────────────
+def snapshot_day(date_str, pnl_list):
+    """Save end-of-day result to persistent history."""
+    global _history
+    wins   = [p for p in pnl_list if p["pnl_value"] > 0]
+    losses = [p for p in pnl_list if p["pnl_value"] <= 0]
+    avg    = sum(p["pnl_value"] for p in pnl_list) / len(pnl_list) if pnl_list else 0
+    best   = max(pnl_list, key=lambda p: p["pnl_value"], default=None)
+    worst  = min(pnl_list, key=lambda p: p["pnl_value"], default=None)
+    total_usd = sum(
+        int(p["pnl_usd"].replace("+$","").replace("-$","").replace("$","").replace("+",""))
+        * (1 if not p["pnl_usd"].startswith("-") else -1)
+        for p in pnl_list
+    )
+
+    record = {
+        "date":      date_str,
+        "wins":      len(wins),
+        "losses":    len(losses),
+        "total":     len(pnl_list),
+        "win_rate":  round(len(wins) / len(pnl_list) * 100) if pnl_list else 0,
+        "avg_pnl":   f"{avg:+.2f}%",
+        "total_usd": f"{'+' if total_usd >= 0 else ''}${total_usd}",
+        "best":      {"symbol": best["symbol"],  "pnl": best["pnl_pct"]}  if best  else None,
+        "worst":     {"symbol": worst["symbol"], "pnl": worst["pnl_pct"]} if worst else None,
+        "detail":    [{k: p[k] for k in ("symbol","pnl_pct","pnl_usd","status")} for p in pnl_list],
+    }
+    _history[date_str] = record
+    save_history(_history)
+    return record
+
+# ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.route('/')
-def index():
-    return send_from_directory('.', 'index.html')
+def index(): return send_from_directory('.', 'index.html')
 
-@app.route('/css/<path:filename>')
-def css(filename):
-    return send_from_directory('css', filename)
+@app.route('/css/<path:f>')
+def css(f): return send_from_directory('css', f)
 
-@app.route('/js/<path:filename>')
-def js(filename):
-    return send_from_directory('js', filename)
+@app.route('/js/<path:f>')
+def js(f): return send_from_directory('js', f)
 
 @app.route('/api/strategies', methods=['POST'])
 def strategies():
-    utc_now  = datetime.datetime.utcnow()
-    bj_now   = utc_now + datetime.timedelta(hours=8)
-    date_str = bj_now.strftime('%Y-%m-%d')
-
+    bj = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+    date_str = bj.strftime('%Y-%m-%d')
     if date_str in _cache:
         return jsonify({"strategies": _cache[date_str], "cached": True, "date": date_str})
-
     try:
         data = build_strategies()
         _cache[date_str] = data
@@ -392,60 +431,59 @@ def strategies():
 
 @app.route('/api/pnl', methods=['POST'])
 def pnl():
-    utc_now  = datetime.datetime.utcnow()
-    bj_now   = utc_now + datetime.timedelta(hours=8)
-    date_str = bj_now.strftime('%Y-%m-%d')
-
+    bj = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+    date_str = bj.strftime('%Y-%m-%d')
     if date_str not in _cache:
         return jsonify({"error": "no_strategies"}), 404
-
     try:
         prices  = fetch_current_prices()
         results = [calc_pnl(s, prices.get(s["symbol"])) for s in _cache[date_str]]
-        return jsonify({"pnl": [r for r in results if r],
-                        "updated_at": bj_now.strftime('%H:%M:%S')})
+        results = [r for r in results if r]
+
+        # Auto-snapshot when past exit time
+        if is_past_exit(UNIFIED_EXIT) and date_str not in _history:
+            snapshot_day(date_str, results)
+
+        return jsonify({"pnl": results, "updated_at": bj.strftime('%H:%M:%S')})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/summary', methods=['POST'])
 def summary():
-    """Day-end summary: wins, losses, best/worst trade, net P&L."""
-    utc_now  = datetime.datetime.utcnow()
-    bj_now   = utc_now + datetime.timedelta(hours=8)
-    date_str = bj_now.strftime('%Y-%m-%d')
-
+    bj = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+    date_str = bj.strftime('%Y-%m-%d')
     if date_str not in _cache:
         return jsonify({"error": "no_strategies"}), 404
-
     try:
-        prices  = fetch_current_prices()
+        prices   = fetch_current_prices()
         pnl_list = [calc_pnl(s, prices.get(s["symbol"])) for s in _cache[date_str]]
         pnl_list = [p for p in pnl_list if p]
-
-        wins   = [p for p in pnl_list if p["status"] in ("hit_tp", "winning", "time_exit") and p["pnl_value"] > 0]
-        losses = [p for p in pnl_list if p["status"] in ("hit_sl", "losing",  "time_exit") and p["pnl_value"] <= 0]
-
-        best  = max(pnl_list, key=lambda p: p["pnl_value"],  default=None)
-        worst = min(pnl_list, key=lambda p: p["pnl_value"],  default=None)
-        avg   = sum(p["pnl_value"] for p in pnl_list) / len(pnl_list) if pnl_list else 0
-
+        wins   = [p for p in pnl_list if p["pnl_value"] > 0]
+        losses = [p for p in pnl_list if p["pnl_value"] <= 0]
+        avg    = sum(p["pnl_value"] for p in pnl_list) / len(pnl_list) if pnl_list else 0
+        best   = max(pnl_list, key=lambda p: p["pnl_value"], default=None)
+        worst  = min(pnl_list, key=lambda p: p["pnl_value"], default=None)
         day_done = is_past_exit(UNIFIED_EXIT)
-
+        if day_done and date_str not in _history:
+            snapshot_day(date_str, pnl_list)
         return jsonify({
-            "date":       date_str,
-            "day_done":   day_done,
-            "total":      len(pnl_list),
-            "wins":       len(wins),
-            "losses":     len(losses),
-            "win_rate":   round(len(wins) / len(pnl_list) * 100) if pnl_list else 0,
-            "avg_pnl":    f"{avg:+.2f}%",
-            "best":       {"symbol": best["symbol"],  "pnl": best["pnl_pct"]}  if best  else None,
-            "worst":      {"symbol": worst["symbol"], "pnl": worst["pnl_pct"]} if worst else None,
-            "detail":     pnl_list,
-            "updated_at": bj_now.strftime('%H:%M:%S'),
+            "date": date_str, "day_done": day_done,
+            "total": len(pnl_list), "wins": len(wins), "losses": len(losses),
+            "win_rate": round(len(wins)/len(pnl_list)*100) if pnl_list else 0,
+            "avg_pnl": f"{avg:+.2f}%",
+            "best":  {"symbol": best["symbol"],  "pnl": best["pnl_pct"]}  if best  else None,
+            "worst": {"symbol": worst["symbol"], "pnl": worst["pnl_pct"]} if worst else None,
+            "detail": pnl_list,
+            "updated_at": bj.strftime('%H:%M:%S'),
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/history', methods=['GET'])
+def history():
+    """Return last 30 days of saved results, newest first."""
+    sorted_days = sorted(_history.keys(), reverse=True)[:30]
+    return jsonify({"history": [_history[d] for d in sorted_days]})
 
 @app.route('/api/cache/clear', methods=['POST'])
 def clear_cache():
