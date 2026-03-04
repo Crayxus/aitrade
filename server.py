@@ -48,24 +48,25 @@ LOT_VALUES = {
 }
 
 STRATEGY_CONFIGS = [
-    # ── XAUUSD Dual Session — London primary, NY backup ──
-    # Gold: London open (15:00 BJ) is the highest-volume session; strongest directional moves
+    # XAUUSD — London primary session (15:00-15:45 BJ)
+    # NY backup (21:00 BJ) is computed separately for the hero panel only
     {
-        "symbol": "XAUUSD", "display_name": "Gold · London",  "ticker": "GC=F",
-        "strategy": "Intraday London", "win_rate": 4, "rr_ratio": "1:1.5",
+        "symbol": "XAUUSD", "display_name": "Gold",  "ticker": "GC=F",
+        "strategy": "Intraday", "win_rate": 4, "rr_ratio": "1:1.5",
         "sl_atr": 1.0, "tp_atr": 1.5, "exit_time": UNIFIED_EXIT,
         "entry_start": "15:00", "entry_end": "15:45",
         "is_xau": True, "session": "London",
     },
-    # NY backup: only use if London signal was too weak (score=0)
-    {
-        "symbol": "XAUUSD", "display_name": "Gold · NY Backup", "ticker": "GC=F",
-        "strategy": "Intraday NY",     "win_rate": 3, "rr_ratio": "1:1.5",
-        "sl_atr": 1.0, "tp_atr": 1.5, "exit_time": UNIFIED_EXIT,
-        "entry_start": "21:00", "entry_end": "21:45",
-        "is_xau": True, "session": "NY",
-    },
 ]
+
+# NY backup config — used only by /api/xauusd hero panel, not shown as a card
+XAUUSD_NY_CONFIG = {
+    "symbol": "XAUUSD", "display_name": "Gold · NY Backup", "ticker": "GC=F",
+    "strategy": "Intraday NY", "win_rate": 3, "rr_ratio": "1:1.5",
+    "sl_atr": 1.0, "tp_atr": 1.5, "exit_time": UNIFIED_EXIT,
+    "entry_start": "21:00", "entry_end": "21:45",
+    "is_xau": True, "session": "NY",
+}
 
 # ── Technical Helpers ─────────────────────────────────────────────────────────
 
@@ -414,6 +415,62 @@ def snapshot_day(date_str, pnl_list):
     save_history(_history)
     return record
 
+# ── XAUUSD NY signal cache (separate from main grid cache) ───────────────────
+_ny_cache = {}   # {date_str: strategy_dict}
+
+def build_ny_signal():
+    """Build the NY-session XAUUSD signal using XAUUSD_NY_CONFIG."""
+    cfg = XAUUSD_NY_CONFIG
+    df_daily  = yf.download(cfg["ticker"], period="60d", interval="1d",  progress=False, auto_adjust=True)
+    df_intra  = yf.download(cfg["ticker"], period="2d",  interval="5m",  progress=False, auto_adjust=True)
+    df_hourly = yf.download(cfg["ticker"], period="5d",  interval="1h",  progress=False, auto_adjust=True)
+
+    dsub = df_daily.dropna()
+    isub = df_intra.dropna()
+    hsub = df_hourly.dropna()
+
+    close_d = np.asarray(dsub["Close"], dtype=float).flatten()
+    high_d  = np.asarray(dsub["High"],  dtype=float).flatten()
+    low_d   = np.asarray(dsub["Low"],   dtype=float).flatten()
+    close_h = np.asarray(hsub["Close"], dtype=float).flatten() if len(hsub) > 5 else close_d[-20:]
+
+    atr       = calc_atr(high_d, low_d, close_d)
+    atr_avg20 = calc_atr(high_d[-40:], low_d[-40:], close_d[-40:], period=20)
+    rsi       = calc_rsi(close_d)
+
+    current    = float(np.asarray(isub["Close"], dtype=float).flatten()[-1]) if len(isub) > 0 else close_d[-1]
+    today_open = float(np.asarray(isub["Open"],  dtype=float).flatten()[0])  if len(isub) > 0 else close_d[-1]
+    gap_pct    = (today_open - close_d[-2]) / close_d[-2]
+    atr_ratio  = atr / atr_avg20 if atr_avg20 > 0 else 1.0
+
+    direction, confidence, signals = score_direction(close_d, high_d, low_d, close_h, gap_pct, rsi, cfg)
+    levels = entry_from_window(isub, atr, current, direction, cfg["sl_atr"], cfg["tp_atr"],
+                               cfg["entry_start"], cfg["entry_end"])
+    lots    = calc_recommended_lots(cfg["symbol"], levels["entry_mid"], levels["stop_loss"])
+    lv      = LOT_VALUES.get(cfg["symbol"], 1)
+    risk_amt   = abs(float(levels["entry_mid"]) - float(levels["stop_loss"])) * lv * lots
+    profit_amt = abs(float(levels["take_profit"]) - float(levels["entry_mid"])) * lv * lots
+    sig_icons  = {k: ("▲" if v > 0 else "▼" if v < 0 else "—") for k, v in signals.items()}
+
+    return {
+        "symbol": cfg["symbol"], "display_name": cfg["display_name"],
+        "strategy": cfg["strategy"], "direction": direction,
+        "confidence": confidence, "confidence_pct": f"{int(confidence*100)}%",
+        "signals": sig_icons, "vol_ok": 0.3 <= atr_ratio <= 3.0,
+        "rsi": round(rsi, 1),
+        "entry_low": levels["entry_low"], "entry_high": levels["entry_high"],
+        "entry_mid": levels["entry_mid"], "entry_source": levels["entry_source"],
+        "take_profit": levels["take_profit"], "tp_pct": levels["tp_pct"],
+        "stop_loss": levels["stop_loss"],     "sl_pct": levels["sl_pct"],
+        "entry_start": cfg["entry_start"], "entry_end": cfg["entry_end"],
+        "exit_time": cfg["exit_time"], "win_rate": cfg["win_rate"],
+        "rr_ratio": cfg["rr_ratio"], "atr": fmt_price(atr, current),
+        "sparkline": make_sparkline(close_d), "current": fmt_price(current, current),
+        "mom_pct": f"{gap_pct*100:+.2f}%",
+        "recommended_lots": lots, "risk_usd": round(risk_amt), "profit_usd": round(profit_amt),
+        "session": "NY", "is_xau": True,
+    }
+
 # ── XAUUSD Daily Log ─────────────────────────────────────────────────────────
 XAU_LOG_FILE = Path(__file__).parent / "data" / "xauusd_log.json"
 
@@ -545,9 +602,9 @@ def _scheduler():
             if 1260 <= hm < 1270 and k_ny not in triggered:
                 print(f"[AUTO] NY open {ds} 21:00")
                 try:
-                    data = build_strategies()
-                    _cache[ds] = data
-                    _upsert_xau_today(data, "NY")
+                    ny_sig = build_ny_signal()
+                    _ny_cache[ds] = ny_sig
+                    _upsert_xau_today([ny_sig], "NY")
                 except Exception as e:
                     print(f"[AUTO ERROR] NY: {e}")
                 triggered.add(k_ny)
@@ -664,10 +721,12 @@ def xauusd():
     else:
         session_now = "In position → exit 03:00"
 
-    # Today's cached signal
+    # Today's cached signals — London from main cache, NY from separate cache
     today_signals = []
     if date_str in _cache:
-        today_signals = [s for s in _cache[date_str] if s.get("symbol") == "XAUUSD"]
+        today_signals += [s for s in _cache[date_str] if s.get("symbol") == "XAUUSD"]
+    if date_str in _ny_cache:
+        today_signals.append(_ny_cache[date_str])
 
     # Build 30-day log newest first
     log_days = sorted(_xau_log.keys(), reverse=True)[:30]
