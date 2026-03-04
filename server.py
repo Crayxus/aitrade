@@ -65,42 +65,6 @@ STRATEGY_CONFIGS = [
         "entry_start": "21:00", "entry_end": "21:45",
         "is_xau": True, "session": "NY",
     },
-    # EURUSD: Frankfurt+London overlap is the highest-volume FX session of the day
-    {
-        "symbol": "EURUSD", "display_name": "Euro / USD",    "ticker": "EURUSD=X",
-        "strategy": "London Breakout", "win_rate": 4, "rr_ratio": "1:1.6",
-        "sl_atr": 0.75, "tp_atr": 1.5, "exit_time": UNIFIED_EXIT,
-        "entry_start": "15:00", "entry_end": "15:45",
-    },
-    # GBPUSD: same London advantage; GBP volatile at 15:00 (UK data + sentiment)
-    {
-        "symbol": "GBPUSD", "display_name": "GBP / USD",     "ticker": "GBPUSD=X",
-        "strategy": "London Breakout", "win_rate": 3, "rr_ratio": "1:1.6",
-        "sl_atr": 1.0, "tp_atr": 1.0, "exit_time": UNIFIED_EXIT,
-        "entry_start": "15:00", "entry_end": "15:45",
-    },
-    # ── New York session (21:00–22:00 BJ = 13:00–14:00 UTC) ──
-    # NAS100: index moves most in the first 30 min of NY; gap fills and momentum runs
-    {
-        "symbol": "NAS100", "display_name": "Nasdaq 100",    "ticker": "NQ=F",
-        "strategy": "NY ORB",   "win_rate": 4, "rr_ratio": "1:2.5",
-        "sl_atr": 0.75, "tp_atr": 1.0, "exit_time": UNIFIED_EXIT,
-        "entry_start": "21:30", "entry_end": "22:00",
-    },
-    # BTCUSD: follows US equity open; strongest momentum when Wall Street opens
-    {
-        "symbol": "BTCUSD", "display_name": "Bitcoin",       "ticker": "BTC-USD",
-        "strategy": "NY Momentum", "win_rate": 3, "rr_ratio": "1:2.5",
-        "sl_atr": 0.5, "tp_atr": 2.0, "exit_time": UNIFIED_EXIT,
-        "entry_start": "21:00", "entry_end": "21:30",
-    },
-    # USOIL: EIA inventory data Wed 22:30 BJ; NY session drives energy prices
-    {
-        "symbol": "USOIL",  "display_name": "Crude Oil WTI", "ticker": "CL=F",
-        "strategy": "NY ORB",   "win_rate": 3, "rr_ratio": "1:2.0",
-        "sl_atr": 0.5, "tp_atr": 1.0, "exit_time": UNIFIED_EXIT,
-        "entry_start": "21:30", "entry_end": "22:00",
-    },
 ]
 
 # ── Technical Helpers ─────────────────────────────────────────────────────────
