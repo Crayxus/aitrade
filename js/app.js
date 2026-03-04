@@ -146,9 +146,10 @@ function renderCard(s, idx, pnl) {
   const isLong = s.direction === 'LONG';
   const dirClass = isLong ? 'long' : 'short';
   const momPos = s.mom_pct && !s.mom_pct.startsWith('-');
+  const selClass = idx === _selectedIdx ? ' selected' : '';
 
   return `
-<div class="card ${dirClass}" id="card-${idx}">
+<div class="card ${dirClass}${selClass}" id="card-${idx}" onclick="selectCard(${idx})">
   <div class="card-top">
     <div class="sym-block">
       <div class="sym">${escHtml(s.symbol)}</div>
@@ -327,6 +328,8 @@ function showSkeletons() {
 
 // ── State ──
 let _strategies = [];
+let _xauData    = null;
+let _selectedIdx = 0;
 let isLoading = false;
 
 // ── Fetch Strategies ──
@@ -386,6 +389,92 @@ async function fetchStrategies(force = false) {
 function renderAll(strategies, pnlMap) {
   document.getElementById('grid').innerHTML =
     strategies.map((s, i) => renderCard(s, i, pnlMap ? pnlMap[s.symbol] : null)).join('');
+}
+
+// ── Select Card (hero panel) ──
+function selectCard(idx) {
+  _selectedIdx = idx;
+  document.querySelectorAll('#grid .card').forEach((el, i) => {
+    el.classList.toggle('selected', i === idx);
+  });
+  const s = _strategies[idx];
+  if (!s) return;
+  if (s.symbol === 'XAUUSD' && _xauData) {
+    renderXauHero(_xauData);
+  } else {
+    const pnl = _pnlData.find(p => p.symbol === s.symbol) || null;
+    renderCardHero(s, pnl);
+  }
+}
+
+// ── Generic Hero (non-XAUUSD) ──
+function renderCardHero(s, pnl) {
+  const hero = document.getElementById('xau-hero');
+  if (!hero) return;
+
+  const isLong   = s.direction === 'LONG';
+  const dirClass = isLong ? 'long' : 'short';
+  const dirLabel = isLong ? '▲ LONG' : '▼ SHORT';
+
+  let pnlHtml = '<span class="xau-pnl neutral">–</span>';
+  if (pnl) {
+    const cls = xauStatusClass(pnl.status);
+    pnlHtml = `<span class="xau-pnl ${cls}">${xauStatusLabel(pnl.status)}&ensp;${escHtml(pnl.pnl_pct || '–')}</span>`;
+  }
+
+  const names = { daily_ema:'EMA20', weekly_mom:'MOM', gap:'GAP', rsi:'RSI', hourly:'HR', ema50:'EMA50' };
+  let sigHtml = '';
+  if (s.signals) {
+    sigHtml = Object.entries(s.signals).map(([k, icon]) => {
+      const cls = icon === '▲' ? 'sig-up' : icon === '▼' ? 'sig-dn' : 'sig-flat';
+      return `<span class="xau-sig ${cls}">${icon} ${names[k]||k}</span>`;
+    }).join('');
+  }
+
+  const sym  = s.symbol;
+  const base = sym.endsWith('USD') ? sym.slice(0, -3) : sym;
+  const quot = sym.endsWith('USD') ? 'USD' : '';
+
+  hero.innerHTML = `
+    <div class="xau-hero-inner ${dirClass}">
+      <div class="xau-hero-left">
+        <div class="xau-sym">${escHtml(base)}<span>${escHtml(quot)}</span></div>
+        <div class="xau-hero-price">${escHtml(String(s.current))}</div>
+        <div class="xau-hero-sess">${escHtml(s.session || '–')}</div>
+      </div>
+      <div class="xau-hero-mid">
+        <div class="xau-dir-badge ${dirClass}">${dirLabel}</div>
+        <div class="xau-conf">${escHtml(s.confidence_pct||'–')} confidence</div>
+        <div class="xau-sigs">${sigHtml || '<span class="muted2">–</span>'}</div>
+        <div class="xau-session-chips">
+          <div class="xau-sess-chip ${dirClass}">
+            <span class="chip-sess">${escHtml(s.session||'–')} · ${escHtml(s.entry_start||'–')} BJ</span>
+            <span class="chip-dir fw">${escHtml(s.direction)}</span>
+            <span class="chip-conf muted2">${escHtml(s.confidence_pct||'–')}</span>
+          </div>
+        </div>
+      </div>
+      <div class="xau-hero-right">
+        <div class="xau-levels">
+          <div class="xau-level-row">
+            <span class="xau-lbl">TP</span>
+            <span class="xau-val green">${escHtml(String(s.take_profit))}</span>
+            <span class="xau-pct green">${escHtml(s.tp_pct||'')}</span>
+          </div>
+          <div class="xau-level-row xau-entry-row">
+            <span class="xau-lbl">ENTRY</span>
+            <span class="xau-val">${escHtml(String(s.entry_mid || s.entry_low || '–'))}</span>
+            <span class="xau-pct muted2">ATR ${escHtml(String(s.atr||'–'))}</span>
+          </div>
+          <div class="xau-level-row">
+            <span class="xau-lbl">SL</span>
+            <span class="xau-val red">${escHtml(String(s.stop_loss))}</span>
+            <span class="xau-pct red">${escHtml(s.sl_pct||'')}</span>
+          </div>
+        </div>
+        ${pnlHtml}
+      </div>
+    </div>`;
 }
 
 // ── Fetch P&L ──
@@ -640,7 +729,9 @@ async function fetchXauusd() {
     const res  = await fetch('/api/xauusd');
     if (!res.ok) return;
     const data = await res.json();
-    renderXauHero(data);
+    _xauData = data;
+    const selSym = _strategies[_selectedIdx] ? _strategies[_selectedIdx].symbol : 'XAUUSD';
+    if (selSym === 'XAUUSD') renderXauHero(data);
     renderXauLog(data.log || []);
   } catch (e) {
     const hero = document.getElementById('xau-hero');
