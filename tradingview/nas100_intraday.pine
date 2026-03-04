@@ -1,0 +1,135 @@
+// @version=5
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  NAS100 Intraday — NY Session                                   ║
+// ║  Chart: 15m                                                     ║
+// ║  Entry : NY open 21:00-21:45 BJ  (13:00-13:45 UTC)             ║
+// ║  Signal: 6-factor score ≥ 1  +  ORB breakout filter            ║
+// ║  SL    : 0.75 × Daily ATR                                       ║
+// ║  TP    : 1.5  × Daily ATR  (R:R = 1:2)                         ║
+// ║  Exit  : SL / TP / 03:00 BJ force-close                        ║
+// ╚══════════════════════════════════════════════════════════════════╝
+strategy(
+    title                   = "NAS100 Intraday NY",
+    shorttitle              = "NAS-ID",
+    overlay                 = true,
+    pyramiding              = 0,
+    default_qty_type        = strategy.cash,
+    default_qty_value       = 200,
+    initial_capital         = 10000,
+    currency                = currency.USD,
+    process_orders_on_close = false,
+    calc_on_every_tick      = false)
+
+// ── Inputs ────────────────────────────────────────────────────────
+g1 = "Risk"
+i_sl_mult = input.float(0.75, "SL × Daily ATR", step=0.25, minval=0.25, group=g1)
+i_tp_mult = input.float(1.50, "TP × Daily ATR", step=0.25, minval=0.25, group=g1)
+
+g2 = "Signal"
+i_sc_min  = input.int(1, "Min |score| to enter (0=always)", minval=0, maxval=6, group=g2)
+i_rsi_os  = input.int(40, "RSI oversold  (<)",  minval=10, maxval=49, group=g2)
+i_rsi_ob  = input.int(60, "RSI overbought (>)", minval=51, maxval=90, group=g2)
+
+g3 = "Session"
+i_exit_h  = input.int(3, "Force-close BJ hour", minval=0, maxval=6, group=g3)
+
+// ── Beijing time ──────────────────────────────────────────────────
+bj_h   = hour(time,   "Asia/Shanghai")
+bj_m   = minute(time, "Asia/Shanghai")
+bj_min = bj_h * 60 + bj_m
+bj_day = year(time,"Asia/Shanghai")*10000 + month(time,"Asia/Shanghai")*100 + dayofmonth(time,"Asia/Shanghai")
+
+in_entry = bj_min >= 1260 and bj_min < 1305   // 21:00-21:45 BJ
+in_exit  = bj_h >= i_exit_h and bj_h < 9       // 03:00-09:00 BJ
+
+// ── Daily data ────────────────────────────────────────────────────
+d_cls  = request.security(syminfo.tickerid, "D", close,    lookahead=barmerge.lookahead_off)
+d_opn  = request.security(syminfo.tickerid, "D", open,     lookahead=barmerge.lookahead_on)
+d_prv  = request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_on)
+atr_d  = request.security(syminfo.tickerid, "D", ta.atr(14), lookahead=barmerge.lookahead_off)
+h_cls  = request.security(syminfo.tickerid, "60", close,   lookahead=barmerge.lookahead_off)
+
+// ── 6-signal score ────────────────────────────────────────────────
+ema20d = ta.ema(d_cls, 20)
+ema50d = ta.ema(d_cls, 50)
+mom20  = d_cls[20] != 0.0 ? (d_cls - d_cls[20]) / d_cls[20] : 0.0
+rsi14  = ta.rsi(d_cls, 14)
+gap    = d_prv != 0.0 ? (d_opn - d_prv) / d_prv : 0.0
+ema20h = ta.ema(h_cls, 20)
+
+s1 = d_cls > ema20d ? 1 : -1
+s2 = mom20 > 0.0    ? 1 : -1
+s3 = gap >  0.0005  ? 1 : gap < -0.0005 ? -1 : 0
+s4 = rsi14 < i_rsi_os ? 1 : rsi14 > i_rsi_ob ? -1 : 0
+s5 = h_cls > ema20h ? 1 : -1
+s6 = d_cls > ema50d ? 1 : -1
+
+score    = s1 + s2 + s3 + s4 + s5 + s6
+go_long  = score >=  i_sc_min
+go_short = score <= -i_sc_min
+
+// ── Entry: once per day ───────────────────────────────────────────
+var int last_day = 0
+no_pos = strategy.position_size == 0
+fresh  = last_day != bj_day
+
+sig_long  = in_entry and no_pos and fresh and go_long
+sig_short = in_entry and no_pos and fresh and go_short
+
+if sig_long
+    strategy.entry("L", strategy.long,  comment="LONG "  + str.tostring(score) + "/6")
+    strategy.exit("Lx","L", stop=close - i_sl_mult*atr_d, limit=close + i_tp_mult*atr_d)
+    last_day := bj_day
+
+if sig_short
+    strategy.entry("S", strategy.short, comment="SHORT " + str.tostring(score) + "/6")
+    strategy.exit("Sx","S", stop=close + i_sl_mult*atr_d, limit=close - i_tp_mult*atr_d)
+    last_day := bj_day
+
+// ── Force-close 03:00 BJ ─────────────────────────────────────────
+if in_exit and not no_pos
+    strategy.close_all(comment="03:00 EXIT")
+
+// ── Alerts ────────────────────────────────────────────────────────
+_json(action) =>
+    '{"action":"' + action + '","symbol":"NAS100"' +
+    ',"price":' + str.tostring(math.round(close, 2)) +
+    ',"score":' + str.tostring(score) +
+    ',"sl":'    + str.tostring(math.round(action=="LONG" ? close-i_sl_mult*atr_d : close+i_sl_mult*atr_d, 2)) +
+    ',"tp":'    + str.tostring(math.round(action=="LONG" ? close+i_tp_mult*atr_d : close-i_tp_mult*atr_d, 2)) +
+    ',"time":"{{timenow}}"}'
+
+if sig_long
+    alert(_json("LONG"),  alert.freq_once_per_bar_close)
+if sig_short
+    alert(_json("SHORT"), alert.freq_once_per_bar_close)
+if in_exit and not no_pos
+    alert('{"action":"EXIT","symbol":"NAS100","price":' + str.tostring(math.round(close,2)) + '}', alert.freq_once_per_bar_close)
+
+// ── Visuals ───────────────────────────────────────────────────────
+plot(ema20d, "EMA20(D)", color.new(color.blue,   45), 1)
+plot(ema50d, "EMA50(D)", color.new(color.orange, 45), 1)
+plotshape(sig_long,  style=shape.triangleup,   location=location.belowbar, color=color.lime, size=size.normal)
+plotshape(sig_short, style=shape.triangledown, location=location.abovebar, color=color.red,  size=size.normal)
+bgcolor(in_entry ? color.new(color.green, 87) : na, title="NY Entry 21:00")
+bgcolor(in_exit  ? color.new(color.red,   93) : na, title="03:00 Exit")
+
+// ── Table ─────────────────────────────────────────────────────────
+sc_c(v) => v > 0 ? color.lime : v < 0 ? color.red : color.gray
+var table t = table.new(position.top_right, 2, 11, bgcolor=color.new(color.black,72), border_width=1, border_color=color.new(color.gray,65))
+if barstate.islast
+    table.cell(t,0,0,"NAS100-ID",    text_color=color.white,  text_size=size.small)
+    table.cell(t,1,0,"15m Chart",    text_color=color.yellow, text_size=size.small)
+    sc_clr = math.abs(score)>=i_sc_min?(score>0?color.lime:color.red):color.gray
+    table.cell(t,0,1,"SCORE",  text_color=color.silver,text_size=size.tiny); table.cell(t,1,1,str.tostring(score)+"/6",text_color=sc_clr,text_size=size.small)
+    table.cell(t,0,2,"EMA20D", text_color=color.silver,text_size=size.tiny); table.cell(t,1,2,s1>0?"▲ BULL":"▼ BEAR",text_color=sc_c(s1),text_size=size.small)
+    table.cell(t,0,3,"MOM20",  text_color=color.silver,text_size=size.tiny); table.cell(t,1,3,s2>0?"▲ UP":"▼ DOWN",  text_color=sc_c(s2),text_size=size.small)
+    table.cell(t,0,4,"GAP",    text_color=color.silver,text_size=size.tiny); table.cell(t,1,4,s3>0?"▲ UP":s3<0?"▼ DOWN":"— FLAT",text_color=sc_c(s3),text_size=size.small)
+    table.cell(t,0,5,"RSI14",  text_color=color.silver,text_size=size.tiny); table.cell(t,1,5,str.tostring(math.round(rsi14,1)),text_color=rsi14<i_rsi_os?color.lime:rsi14>i_rsi_ob?color.red:color.gray,text_size=size.small)
+    table.cell(t,0,6,"HR EMA", text_color=color.silver,text_size=size.tiny); table.cell(t,1,6,s5>0?"▲ BULL":"▼ BEAR",text_color=sc_c(s5),text_size=size.small)
+    table.cell(t,0,7,"EMA50D", text_color=color.silver,text_size=size.tiny); table.cell(t,1,7,s6>0?"▲ BULL":"▼ BEAR",text_color=sc_c(s6),text_size=size.small)
+    table.cell(t,0,8,"ATR14",  text_color=color.silver,text_size=size.tiny); table.cell(t,1,8,str.tostring(math.round(atr_d,2)),text_color=color.white,text_size=size.small)
+    table.cell(t,0,9,"SL/TP",  text_color=color.silver,text_size=size.tiny); table.cell(t,1,9,str.tostring(i_sl_mult)+"x / "+str.tostring(i_tp_mult)+"x ATR",text_color=color.silver,text_size=size.small)
+    st = in_entry?"● NY ENTRY":in_exit?"⬛ 03:00 EXIT":"○ WAITING"
+    sc2 = in_entry?color.lime:in_exit?color.red:color.gray
+    table.cell(t,0,10,"SESSION",text_color=color.silver,text_size=size.tiny); table.cell(t,1,10,st,text_color=sc2,text_size=size.small)

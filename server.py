@@ -51,11 +51,27 @@ STRATEGY_CONFIGS = [
     # XAUUSD — London primary session (15:00-15:45 BJ)
     # NY backup (21:00 BJ) is computed separately for the hero panel only
     {
-        "symbol": "XAUUSD", "display_name": "Gold",  "ticker": "GC=F",
+        "symbol": "XAUUSD", "display_name": "Gold",      "ticker": "GC=F",
         "strategy": "Intraday", "win_rate": 4, "rr_ratio": "1:1.5",
         "sl_atr": 1.0, "tp_atr": 1.5, "exit_time": UNIFIED_EXIT,
         "entry_start": "15:00", "entry_end": "15:45",
         "is_xau": True, "session": "London",
+    },
+    # NAS100 — NY session (21:00-21:45 BJ)
+    {
+        "symbol": "NAS100",  "display_name": "Nasdaq 100", "ticker": "NQ=F",
+        "strategy": "Intraday", "win_rate": 4, "rr_ratio": "1:2.0",
+        "sl_atr": 0.75, "tp_atr": 1.5, "exit_time": UNIFIED_EXIT,
+        "entry_start": "21:00", "entry_end": "21:45",
+        "session": "NY",
+    },
+    # BTCUSD — NY session (21:00-21:30 BJ)
+    {
+        "symbol": "BTCUSD",  "display_name": "Bitcoin",    "ticker": "BTC-USD",
+        "strategy": "Intraday", "win_rate": 3, "rr_ratio": "1:4.0",
+        "sl_atr": 0.5, "tp_atr": 2.0, "exit_time": UNIFIED_EXIT,
+        "entry_start": "21:00", "entry_end": "21:30",
+        "session": "NY",
     },
 ]
 
