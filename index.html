@@ -81,6 +81,28 @@
   <div class="loading-text">FETCHING LIVE MARKET DATA...</div>
 </div>
 
+<!-- XAUUSD Focus Panel -->
+<section id="xau-section">
+  <div id="xau-hero">
+    <div class="xau-hero-loading">LOADING XAUUSD SIGNAL...</div>
+  </div>
+  <div id="xau-log-wrap" style="display:none">
+    <div class="xau-log-header">
+      <span class="xau-log-title">XAUUSD · 日内交易记录 (30天)</span>
+      <span id="xau-log-sub" class="xau-log-sub"></span>
+    </div>
+    <div class="xau-log-scroll">
+      <table class="xau-log-table">
+        <thead><tr>
+          <th>日期</th><th>Session</th><th>方向</th><th>信号</th>
+          <th>入场</th><th>止损</th><th>止盈</th><th>收盘价</th><th>结果</th><th>P&amp;L</th>
+        </tr></thead>
+        <tbody id="xau-log-body"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
 <!-- Main -->
 <main>
   <div id="status-bar">

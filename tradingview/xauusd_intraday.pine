@@ -1,0 +1,204 @@
+// @version=5
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  XAUUSD Intraday — Dual Session                                 ║
+// ║  Chart: 1h                                                      ║
+// ║  Session 1: London 15:00-15:45 BJ  (primary)                   ║
+// ║  Session 2: NY     21:00-21:45 BJ  (backup if no London trade)  ║
+// ║  Signals : 6-factor score ≥ 1, ATR-based SL/TP                 ║
+// ║  Exit    : SL / TP / 03:00 BJ force-close                      ║
+// ╚══════════════════════════════════════════════════════════════════╝
+strategy(
+    title                   = "XAUUSD Intraday Dual Session",
+    shorttitle              = "XAUUSD-ID",
+    overlay                 = true,
+    pyramiding              = 0,
+    default_qty_type        = strategy.cash,
+    default_qty_value       = 200,
+    initial_capital         = 10000,
+    currency                = currency.USD,
+    process_orders_on_close = false,
+    calc_on_every_tick      = false)
+
+// ══════════════════════════════════════════════════════════════════
+//  INPUTS
+// ══════════════════════════════════════════════════════════════════
+g1 = "Risk"
+i_sl_mult  = input.float(1.0, "SL × Daily ATR",      step=0.25, minval=0.25, group=g1)
+i_tp_mult  = input.float(1.5, "TP × Daily ATR",      step=0.25, minval=0.25, group=g1)
+i_atr_len  = input.int(14,    "ATR Period (daily)",  minval=5,               group=g1)
+
+g2 = "Signals"
+i_sc_min   = input.int(1,     "Min |score| to enter (0=always)", minval=0, maxval=6, group=g2)
+i_rsi_os   = input.int(40,    "RSI oversold  → LONG  (<)",  minval=10, maxval=49, group=g2)
+i_rsi_ob   = input.int(60,    "RSI overbought→ SHORT (>)",  minval=51, maxval=90, group=g2)
+i_gap_thr  = input.float(0.0005, "Gap threshold (0.05%)", step=0.0001, group=g2)
+
+g3 = "Sessions (Beijing = UTC+8)"
+i_use_lon  = input.bool(true,  "London  15:00-15:45 BJ  (primary)", group=g3)
+i_use_ny   = input.bool(true,  "NY      21:00-21:45 BJ  (backup)",  group=g3)
+i_exit_h   = input.int(3,      "Force-close hour BJ (3 = 03:00)",   minval=0, maxval=6, group=g3)
+
+// ══════════════════════════════════════════════════════════════════
+//  BEIJING TIME HELPERS
+// ══════════════════════════════════════════════════════════════════
+bj_h   = hour(time,   "Asia/Shanghai")
+bj_m   = minute(time, "Asia/Shanghai")
+bj_min = bj_h * 60 + bj_m
+bj_day = year(time,"Asia/Shanghai") * 10000
+       + month(time,"Asia/Shanghai") * 100
+       + dayofmonth(time,"Asia/Shanghai")
+
+// Entry windows
+in_lon    = i_use_lon and (bj_min >= 900  and bj_min < 945)   // 15:00-15:45 BJ
+in_ny     = i_use_ny  and (bj_min >= 1260 and bj_min < 1305)  // 21:00-21:45 BJ
+in_entry  = in_lon or in_ny
+in_exit   = bj_h >= i_exit_h and bj_h < 9                     // 03:00-09:00 BJ
+
+// ══════════════════════════════════════════════════════════════════
+//  MULTI-TIMEFRAME DATA
+// ══════════════════════════════════════════════════════════════════
+d_cls  = request.security(syminfo.tickerid, "D", close,       lookahead=barmerge.lookahead_off)
+d_opn  = request.security(syminfo.tickerid, "D", open,        lookahead=barmerge.lookahead_on)
+d_prv  = request.security(syminfo.tickerid, "D", close[1],    lookahead=barmerge.lookahead_on)
+atr_d  = request.security(syminfo.tickerid, "D", ta.atr(i_atr_len), lookahead=barmerge.lookahead_off)
+
+// ══════════════════════════════════════════════════════════════════
+//  6-SIGNAL SCORE
+// ══════════════════════════════════════════════════════════════════
+ema20d = ta.ema(d_cls, 20)
+ema50d = ta.ema(d_cls, 50)
+mom20  = d_cls[20] != 0.0 ? (d_cls - d_cls[20]) / d_cls[20] : 0.0
+rsi14  = ta.rsi(d_cls, 14)
+gap    = d_prv != 0.0 ? (d_opn - d_prv) / d_prv : 0.0
+
+s1 = d_cls > ema20d ? 1 : -1                                          // EMA20 trend
+s2 = mom20 > 0.0    ? 1 : -1                                          // 20-day momentum
+s3 = gap >  i_gap_thr ? 1 : gap < -i_gap_thr ? -1 : 0               // Gap direction
+s4 = rsi14 < i_rsi_os ? 1 : rsi14 > i_rsi_ob ? -1 : 0              // RSI mean-rev
+s5 = d_cls > d_cls[5]  ? 1 : -1                                      // 5-day momentum
+s6 = d_cls > ema50d    ? 1 : -1                                      // EMA50 long-trend
+
+score    = s1 + s2 + s3 + s4 + s5 + s6  // −6 to +6
+go_long  = score >=  i_sc_min
+go_short = score <= -i_sc_min
+
+// ══════════════════════════════════════════════════════════════════
+//  ENTRY — once per Beijing day, first session that fires wins
+// ══════════════════════════════════════════════════════════════════
+var int last_day = 0
+no_pos = strategy.position_size == 0
+fresh  = last_day != bj_day
+
+sess_tag = in_lon ? "LON" : "NY"
+
+sig_long  = in_entry and no_pos and fresh and go_long
+sig_short = in_entry and no_pos and fresh and go_short
+
+if sig_long
+    sl_p = close - i_sl_mult * atr_d
+    tp_p = close + i_tp_mult * atr_d
+    strategy.entry("L", strategy.long,
+        comment = "LONG " + str.tostring(score) + "/6 " + sess_tag)
+    strategy.exit("Lx", "L", stop=sl_p, limit=tp_p, comment="TP/SL")
+    last_day := bj_day
+
+if sig_short
+    sl_p = close + i_sl_mult * atr_d
+    tp_p = close - i_tp_mult * atr_d
+    strategy.entry("S", strategy.short,
+        comment = "SHORT " + str.tostring(score) + "/6 " + sess_tag)
+    strategy.exit("Sx", "S", stop=sl_p, limit=tp_p, comment="TP/SL")
+    last_day := bj_day
+
+// ══════════════════════════════════════════════════════════════════
+//  FORCE-CLOSE 03:00 BJ
+// ══════════════════════════════════════════════════════════════════
+if in_exit and not no_pos
+    strategy.close_all(comment = "03:00 EXIT")
+
+// ══════════════════════════════════════════════════════════════════
+//  ALERTS  (JSON — paste URL into TradingView alert)
+// ══════════════════════════════════════════════════════════════════
+_json(action) =>
+    '{"action":"'   + action                                              +
+    '","symbol":"XAUUSD"'                                                 +
+    ',"price":'     + str.tostring(math.round(close, 2))                  +
+    ',"score":'     + str.tostring(score)                                 +
+    ',"session":"'  + sess_tag + '"'                                      +
+    ',"atr":'       + str.tostring(math.round(atr_d, 2))                  +
+    ',"sl":'        + str.tostring(math.round(
+                          action=="LONG"  ? close - i_sl_mult * atr_d
+                                         : close + i_sl_mult * atr_d, 2)) +
+    ',"tp":'        + str.tostring(math.round(
+                          action=="LONG"  ? close + i_tp_mult * atr_d
+                                         : close - i_tp_mult * atr_d, 2)) +
+    ',"time":"{{timenow}}"}'
+
+if sig_long
+    alert(_json("LONG"),  alert.freq_once_per_bar_close)
+if sig_short
+    alert(_json("SHORT"), alert.freq_once_per_bar_close)
+if in_exit and not no_pos
+    alert('{"action":"EXIT","symbol":"XAUUSD","price":' +
+          str.tostring(math.round(close,2)) + ',"time":"{{timenow}}"}',
+          alert.freq_once_per_bar_close)
+
+alertcondition(sig_long,             "XAUUSD LONG",  "XAUUSD LONG score=" + str.tostring(score))
+alertcondition(sig_short,            "XAUUSD SHORT", "XAUUSD SHORT score=" + str.tostring(score))
+alertcondition(in_exit and not no_pos, "XAUUSD EXIT",  "XAUUSD 03:00 FORCE EXIT")
+
+// ══════════════════════════════════════════════════════════════════
+//  VISUALS
+// ══════════════════════════════════════════════════════════════════
+plot(ema20d, "EMA20(D)", color.new(color.blue,   45), 1)
+plot(ema50d, "EMA50(D)", color.new(color.orange, 45), 1)
+
+plotshape(sig_long,  title="Long",  style=shape.triangleup,
+    location=location.belowbar, color=color.lime,  size=size.normal)
+plotshape(sig_short, title="Short", style=shape.triangledown,
+    location=location.abovebar, color=color.red,   size=size.normal)
+
+bgcolor(in_lon   ? color.new(color.green,  87) : na, title="London Entry 15:00")
+bgcolor(in_ny    ? color.new(color.teal,   87) : na, title="NY Entry 21:00")
+bgcolor(in_exit  ? color.new(color.red,    93) : na, title="03:00 Exit Zone")
+
+// ══════════════════════════════════════════════════════════════════
+//  INFO TABLE
+// ══════════════════════════════════════════════════════════════════
+sc_c(v) => v > 0 ? color.lime : v < 0 ? color.red : color.gray
+
+var table tbl = table.new(position.top_right, 2, 13,
+    bgcolor=color.new(color.black, 72), border_width=1,
+    border_color=color.new(color.gray, 65))
+
+th(c, r, t)      => table.cell(tbl, c, r, t, text_color=color.silver, text_size=size.tiny)
+td(c, r, t, clr) => table.cell(tbl, c, r, t, text_color=clr,          text_size=size.small)
+
+if barstate.islast
+    td(0,  0, "XAUUSD-ID",        color.white)
+    td(1,  0, "1h Chart",         color.yellow)
+
+    sc_clr = math.abs(score) >= i_sc_min ? (score > 0 ? color.lime : color.red) : color.gray
+    th(0,  1, "SCORE");   td(1,  1, str.tostring(score) + "/6", sc_clr)
+    th(0,  2, "EMA20D");  td(1,  2, s1 > 0 ? "▲ BULL" : "▼ BEAR", sc_c(s1))
+    th(0,  3, "MOM20");   td(1,  3, s2 > 0 ? "▲ UP"   : "▼ DOWN", sc_c(s2))
+    th(0,  4, "GAP");     td(1,  4, s3 > 0 ? "▲ UP" : s3 < 0 ? "▼ DOWN" : "— FLAT", sc_c(s3))
+    th(0,  5, "RSI14");   td(1,  5, str.tostring(math.round(rsi14, 1)),
+        rsi14 < i_rsi_os ? color.lime : rsi14 > i_rsi_ob ? color.red : color.gray)
+    th(0,  6, "MOM5D");   td(1,  6, s5 > 0 ? "▲ UP"   : "▼ DOWN", sc_c(s5))
+    th(0,  7, "EMA50D");  td(1,  7, s6 > 0 ? "▲ BULL" : "▼ BEAR", sc_c(s6))
+    th(0,  8, "ATR14");   td(1,  8, str.tostring(math.round(atr_d, 2)), color.white)
+    th(0,  9, "SL");      td(1,  9, str.tostring(math.round(i_sl_mult * atr_d, 2)), color.red)
+    th(0, 10, "TP");      td(1, 10, str.tostring(math.round(i_tp_mult * atr_d, 2)), color.lime)
+
+    pos_txt = strategy.position_size > 0 ? "▲ LONG" :
+              strategy.position_size < 0 ? "▼ SHORT" : "FLAT"
+    pos_clr = strategy.position_size > 0 ? color.lime :
+              strategy.position_size < 0 ? color.red  : color.gray
+    th(0, 11, "POSITION"); td(1, 11, pos_txt, pos_clr)
+
+    sess_txt = in_lon ? "● LONDON ENTRY" : in_ny ? "● NY ENTRY" :
+               in_exit ? "⬛ 03:00 EXIT" : "○ WAITING"
+    sess_clr = in_lon ? color.lime : in_ny ? color.teal :
+               in_exit ? color.red : color.gray
+    th(0, 12, "SESSION");  td(1, 12, sess_txt, sess_clr)

@@ -512,6 +512,143 @@ async function fetchHistory() {
   } catch {}
 }
 
+// ── XAUUSD Focus ──────────────────────────────────────────────────────────────
+
+function xauStatusClass(status) {
+  if (status === 'hit_tp')    return 'win';
+  if (status === 'hit_sl')    return 'loss';
+  if (status === 'time_exit') return 'exit';
+  if (status === 'open')      return 'open';
+  return 'neutral';
+}
+
+function xauStatusLabel(status) {
+  const m = { hit_tp:'✓ TP HIT', hit_sl:'✕ SL HIT', time_exit:'⏰ 03:00', open:'● OPEN' };
+  return m[status] || (status || '–');
+}
+
+function renderXauHero(data) {
+  const hero = document.getElementById('xau-hero');
+  if (!hero) return;
+
+  const sig  = (data.signals || []).find(s => s.session === 'London') ||
+               (data.signals || [])[0];
+  const log  = data.today;
+  const sess = data.session_now || '–';
+  const isLong = sig ? sig.direction === 'LONG' : null;
+  const dirClass = isLong === null ? 'neutral' : isLong ? 'long' : 'short';
+  const dirLabel = isLong === null ? '待计算' : isLong ? '▲ LONG' : '▼ SHORT';
+
+  let pnlHtml = '<span class="xau-pnl neutral">–</span>';
+  if (log) {
+    const cls = xauStatusClass(log.status);
+    pnlHtml = `<span class="xau-pnl ${cls}">${xauStatusLabel(log.status)}&ensp;${escHtml(log.pnl_pct || '–')}</span>`;
+  }
+
+  const names = { daily_ema:'EMA20', weekly_mom:'MOM', gap:'GAP', rsi:'RSI', hourly:'HR', ema50:'EMA50' };
+  let sigHtml = '';
+  if (sig && sig.signals) {
+    sigHtml = Object.entries(sig.signals).map(([k, icon]) => {
+      const cls = icon === '▲' ? 'sig-up' : icon === '▼' ? 'sig-dn' : 'sig-flat';
+      return `<span class="xau-sig ${cls}">${icon} ${names[k]||k}</span>`;
+    }).join('');
+  }
+
+  const sessionChips = (data.signals || []).map(s => {
+    const sc = s.direction === 'LONG' ? 'long' : 'short';
+    return `<div class="xau-sess-chip ${sc}">
+      <span class="chip-sess">${escHtml(s.session||'–')}</span>
+      <span class="chip-dir fw">${escHtml(s.direction)}</span>
+      <span class="chip-conf muted2">${escHtml(s.confidence_pct||'–')}</span>
+    </div>`;
+  }).join('');
+
+  hero.innerHTML = `
+    <div class="xau-hero-inner ${dirClass}">
+      <div class="xau-hero-left">
+        <div class="xau-sym">XAU<span>USD</span></div>
+        <div class="xau-hero-price">${sig ? escHtml(String(sig.current)) : '–'}</div>
+        <div class="xau-hero-sess">${escHtml(sess)}</div>
+      </div>
+      <div class="xau-hero-mid">
+        <div class="xau-dir-badge ${dirClass}">${dirLabel}</div>
+        <div class="xau-conf">${sig ? escHtml(sig.confidence_pct||'–') : '–'} confidence</div>
+        <div class="xau-sigs">${sigHtml || '<span class="muted2">–</span>'}</div>
+        <div class="xau-session-chips">${sessionChips}</div>
+      </div>
+      <div class="xau-hero-right">
+        <div class="xau-levels">
+          <div class="xau-level-row">
+            <span class="xau-lbl">TP</span>
+            <span class="xau-val green">${sig ? escHtml(String(sig.take_profit)) : '–'}</span>
+            <span class="xau-pct green">${sig ? escHtml(sig.tp_pct||'') : ''}</span>
+          </div>
+          <div class="xau-level-row xau-entry-row">
+            <span class="xau-lbl">ENTRY</span>
+            <span class="xau-val">${sig ? escHtml(String(sig.entry_mid)) : '–'}</span>
+            <span class="xau-pct muted2">ATR ${sig ? escHtml(String(sig.atr)) : '–'}</span>
+          </div>
+          <div class="xau-level-row">
+            <span class="xau-lbl">SL</span>
+            <span class="xau-val red">${sig ? escHtml(String(sig.stop_loss)) : '–'}</span>
+            <span class="xau-pct red">${sig ? escHtml(sig.sl_pct||'') : ''}</span>
+          </div>
+        </div>
+        ${pnlHtml}
+      </div>
+    </div>`;
+}
+
+function renderXauLog(log) {
+  const body = document.getElementById('xau-log-body');
+  const wrap = document.getElementById('xau-log-wrap');
+  const sub  = document.getElementById('xau-log-sub');
+  if (!body || !wrap) return;
+  if (!log || !log.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+
+  const done   = log.filter(d => d.status && d.status !== 'open').length;
+  const wins   = log.filter(d => d.status === 'hit_tp').length;
+  const losses = log.filter(d => d.status === 'hit_sl').length;
+  const exits  = log.filter(d => d.status === 'time_exit').length;
+  const wr     = done > 0 ? Math.round(wins / done * 100) : 0;
+  if (sub) sub.textContent =
+    `${wins}W / ${losses}L / ${exits}⏰  ·  胜率 ${wr}%  ·  共 ${log.length} 天`;
+
+  body.innerHTML = log.map(d => {
+    const sc   = xauStatusClass(d.status);
+    const sl   = xauStatusLabel(d.status);
+    const dirC = d.direction === 'LONG' ? 'long' : 'short';
+    const pnlC = d.pnl_pct && !d.pnl_pct.startsWith('-') ? 'green' : 'red';
+    return `<tr>
+      <td class="hist-date">${escHtml(d.date||'–')}</td>
+      <td><span class="xau-sess-tag">${escHtml(d.session||'–')}</span></td>
+      <td><span class="dir-mini ${dirC}">${d.direction==='LONG'?'▲ LONG':'▼ SHORT'}</span></td>
+      <td class="muted2">${escHtml(d.confidence||'–')}</td>
+      <td class="mono">${escHtml(String(d.entry||'–'))}</td>
+      <td class="mono red">${escHtml(String(d.sl||'–'))}</td>
+      <td class="mono green">${escHtml(String(d.tp||'–'))}</td>
+      <td class="mono muted2">${escHtml(String(d.close_px||'–'))}</td>
+      <td><span class="status-chip ${sc}">${sl}</span></td>
+      <td class="fw ${pnlC}">${escHtml(d.pnl_pct||'–')}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function fetchXauusd() {
+  try {
+    const res  = await fetch('/api/xauusd');
+    if (!res.ok) return;
+    const data = await res.json();
+    renderXauHero(data);
+    renderXauLog(data.log || []);
+  } catch (e) {
+    const hero = document.getElementById('xau-hero');
+    if (hero) hero.innerHTML =
+      `<div class="xau-hero-loading" style="color:var(--red)">Error: ${escHtml(e.message)}</div>`;
+  }
+}
+
 // ── Init ──
 document.addEventListener('DOMContentLoaded', () => {
   updateClock();
@@ -522,8 +659,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('refresh-btn').addEventListener('click', () => fetchStrategies(true));
 
+  fetchXauusd();
   fetchStrategies(false);
   fetchHistory();
-  setInterval(() => { fetchPnl(); fetchSummary(); }, 5 * 60 * 1000);
+  setInterval(() => { fetchPnl(); fetchSummary(); fetchXauusd(); }, 5 * 60 * 1000);
   setInterval(fetchHistory, 15 * 60 * 1000);
 });

@@ -1,5 +1,7 @@
 import os
 import json
+import time
+import threading
 import datetime
 import numpy as np
 import pandas as pd
@@ -46,26 +48,35 @@ LOT_VALUES = {
 }
 
 STRATEGY_CONFIGS = [
-    # ── London session (15:00–15:45 BJ = 07:00–07:45 UTC) ──
-    # Gold: world's highest-volume session at London open; strong directional moves
+    # ── XAUUSD Dual Session — London primary, NY backup ──
+    # Gold: London open (15:00 BJ) is the highest-volume session; strongest directional moves
     {
-        "symbol": "XAUUSD", "display_name": "Gold",          "ticker": "GC=F",
-        "strategy": "London ORB", "win_rate": 4, "rr_ratio": "1:2.0",
-        "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": UNIFIED_EXIT,
-        "entry_start": "15:00", "entry_end": "15:30",
+        "symbol": "XAUUSD", "display_name": "Gold · London",  "ticker": "GC=F",
+        "strategy": "Intraday London", "win_rate": 4, "rr_ratio": "1:1.5",
+        "sl_atr": 1.0, "tp_atr": 1.5, "exit_time": UNIFIED_EXIT,
+        "entry_start": "15:00", "entry_end": "15:45",
+        "is_xau": True, "session": "London",
+    },
+    # NY backup: only use if London signal was too weak (score=0)
+    {
+        "symbol": "XAUUSD", "display_name": "Gold · NY Backup", "ticker": "GC=F",
+        "strategy": "Intraday NY",     "win_rate": 3, "rr_ratio": "1:1.5",
+        "sl_atr": 1.0, "tp_atr": 1.5, "exit_time": UNIFIED_EXIT,
+        "entry_start": "21:00", "entry_end": "21:45",
+        "is_xau": True, "session": "NY",
     },
     # EURUSD: Frankfurt+London overlap is the highest-volume FX session of the day
     {
         "symbol": "EURUSD", "display_name": "Euro / USD",    "ticker": "EURUSD=X",
         "strategy": "London Breakout", "win_rate": 4, "rr_ratio": "1:1.6",
-        "sl_atr": 0.8, "tp_atr": 1.6, "exit_time": UNIFIED_EXIT,
+        "sl_atr": 0.75, "tp_atr": 1.5, "exit_time": UNIFIED_EXIT,
         "entry_start": "15:00", "entry_end": "15:45",
     },
     # GBPUSD: same London advantage; GBP volatile at 15:00 (UK data + sentiment)
     {
         "symbol": "GBPUSD", "display_name": "GBP / USD",     "ticker": "GBPUSD=X",
         "strategy": "London Breakout", "win_rate": 3, "rr_ratio": "1:1.6",
-        "sl_atr": 0.8, "tp_atr": 1.6, "exit_time": UNIFIED_EXIT,
+        "sl_atr": 1.0, "tp_atr": 1.0, "exit_time": UNIFIED_EXIT,
         "entry_start": "15:00", "entry_end": "15:45",
     },
     # ── New York session (21:00–22:00 BJ = 13:00–14:00 UTC) ──
@@ -73,21 +84,21 @@ STRATEGY_CONFIGS = [
     {
         "symbol": "NAS100", "display_name": "Nasdaq 100",    "ticker": "NQ=F",
         "strategy": "NY ORB",   "win_rate": 4, "rr_ratio": "1:2.5",
-        "sl_atr": 1.0, "tp_atr": 2.5, "exit_time": UNIFIED_EXIT,
+        "sl_atr": 0.75, "tp_atr": 1.0, "exit_time": UNIFIED_EXIT,
         "entry_start": "21:30", "entry_end": "22:00",
     },
     # BTCUSD: follows US equity open; strongest momentum when Wall Street opens
     {
         "symbol": "BTCUSD", "display_name": "Bitcoin",       "ticker": "BTC-USD",
         "strategy": "NY Momentum", "win_rate": 3, "rr_ratio": "1:2.5",
-        "sl_atr": 1.0, "tp_atr": 2.5, "exit_time": UNIFIED_EXIT,
+        "sl_atr": 0.5, "tp_atr": 2.0, "exit_time": UNIFIED_EXIT,
         "entry_start": "21:00", "entry_end": "21:30",
     },
     # USOIL: EIA inventory data Wed 22:30 BJ; NY session drives energy prices
     {
         "symbol": "USOIL",  "display_name": "Crude Oil WTI", "ticker": "CL=F",
         "strategy": "NY ORB",   "win_rate": 3, "rr_ratio": "1:2.0",
-        "sl_atr": 1.0, "tp_atr": 2.0, "exit_time": UNIFIED_EXIT,
+        "sl_atr": 0.5, "tp_atr": 1.0, "exit_time": UNIFIED_EXIT,
         "entry_start": "21:30", "entry_end": "22:00",
     },
 ]
@@ -320,6 +331,8 @@ def build_strategies():
                 "recommended_lots": lots,
                 "risk_usd":         round(risk_amt),
                 "profit_usd":       round(profit_amt),
+                "session":          cfg.get("session"),
+                "is_xau":           cfg.get("is_xau", False),
             })
         except Exception as e:
             print(f"[WARN] {cfg['symbol']}: {e}")
@@ -434,6 +447,157 @@ def snapshot_day(date_str, pnl_list):
     save_history(_history)
     return record
 
+# ── XAUUSD Daily Log ─────────────────────────────────────────────────────────
+XAU_LOG_FILE = Path(__file__).parent / "data" / "xauusd_log.json"
+
+def load_xau_log():
+    try:
+        XAU_LOG_FILE.parent.mkdir(exist_ok=True)
+        if XAU_LOG_FILE.exists():
+            return json.loads(XAU_LOG_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+def save_xau_log(log):
+    try:
+        XAU_LOG_FILE.parent.mkdir(exist_ok=True)
+        XAU_LOG_FILE.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"[WARN] save_xau_log: {e}")
+
+_xau_log = load_xau_log()  # {date_str: {session, direction, score, entry, sl, tp, atr, ...}}
+
+def _upsert_xau_today(strategies, session_label):
+    """Save today's XAUUSD signal to persistent log (called by scheduler)."""
+    global _xau_log
+    bj = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+    date_str = bj.strftime('%Y-%m-%d')
+
+    xau = next((s for s in strategies
+                if s.get("symbol") == "XAUUSD" and s.get("session") == session_label), None)
+    if xau is None:
+        return
+
+    entry = {
+        "date":      date_str,
+        "session":   session_label,
+        "direction": xau["direction"],
+        "score":     None,          # score not stored in strategy dict directly
+        "entry":     xau["entry_mid"],
+        "sl":        xau["stop_loss"],
+        "tp":        xau["take_profit"],
+        "atr":       xau["atr"],
+        "confidence":xau.get("confidence_pct", "–"),
+        "signals":   xau.get("signals", {}),
+        "status":    "open",
+        "pnl_pct":   None,
+        "pnl_usd":   None,
+        "close_px":  None,
+    }
+
+    # Merge — don't overwrite if already have P&L
+    existing = _xau_log.get(date_str, {})
+    if existing.get("status") in ("hit_tp", "hit_sl", "time_exit"):
+        return   # already finalised for today
+    _xau_log[date_str] = {**existing, **entry}
+    save_xau_log(_xau_log)
+    print(f"[XAU LOG] {date_str} {session_label}: {xau['direction']} entry={xau['entry_mid']}")
+
+def _finalise_xau_today():
+    """Snapshot XAUUSD P&L at 03:30 BJ (called by scheduler)."""
+    global _xau_log
+    bj = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+    date_str = bj.strftime('%Y-%m-%d')
+
+    if date_str not in _xau_log:
+        return
+    if _xau_log[date_str].get("status") in ("hit_tp", "hit_sl", "time_exit"):
+        return   # already done
+
+    try:
+        prices = fetch_current_prices()
+        cur = prices.get("XAUUSD")
+        if cur is None:
+            return
+        entry_mid = float(_xau_log[date_str]["entry"])
+        direction = _xau_log[date_str]["direction"]
+        sl  = float(_xau_log[date_str]["sl"])
+        tp  = float(_xau_log[date_str]["tp"])
+
+        if direction == "LONG":
+            pnl_pct = (cur - entry_mid) / entry_mid * 100
+            status  = "hit_tp" if cur >= tp else "hit_sl" if cur <= sl else "time_exit"
+        else:
+            pnl_pct = (entry_mid - cur) / entry_mid * 100
+            status  = "hit_tp" if cur <= tp else "hit_sl" if cur >= sl else "time_exit"
+
+        pnl_usd = round(pnl_pct / 100 * entry_mid * 100 * 0.1)  # 0.1 lot = 10 oz
+        sign = "+" if pnl_pct >= 0 else ""
+        _xau_log[date_str].update({
+            "status":   status,
+            "close_px": fmt_price(cur, cur),
+            "pnl_pct":  f"{sign}{pnl_pct:.2f}%",
+            "pnl_usd":  f"{'+' if pnl_usd >= 0 else ''}${pnl_usd}",
+        })
+        save_xau_log(_xau_log)
+        print(f"[XAU LOG] finalised {date_str}: {status} pnl={sign}{pnl_pct:.2f}%")
+    except Exception as e:
+        print(f"[XAU LOG] finalise error: {e}")
+
+# ── Background Scheduler ──────────────────────────────────────────────────────
+def _scheduler():
+    """
+    Auto-trigger strategy computation at key Beijing times:
+      15:00 BJ → London open (XAUUSD primary entry)
+      21:00 BJ → NY open    (XAUUSD backup entry)
+      03:30 BJ → Finalise today's XAUUSD P&L
+    """
+    triggered = set()
+    print("[SCHEDULER] started — waiting for 15:00 / 21:00 / 03:30 BJ")
+    while True:
+        try:
+            bj  = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+            ds  = bj.strftime('%Y-%m-%d')
+            hm  = bj.hour * 60 + bj.minute
+
+            # London 15:00-15:09 BJ
+            k_lon = f"{ds}-london"
+            if 900 <= hm < 910 and k_lon not in triggered:
+                print(f"[AUTO] London open {ds} 15:00")
+                try:
+                    data = build_strategies()
+                    _cache[ds] = data
+                    _upsert_xau_today(data, "London")
+                except Exception as e:
+                    print(f"[AUTO ERROR] London: {e}")
+                triggered.add(k_lon)
+
+            # NY 21:00-21:09 BJ
+            k_ny = f"{ds}-ny"
+            if 1260 <= hm < 1270 and k_ny not in triggered:
+                print(f"[AUTO] NY open {ds} 21:00")
+                try:
+                    data = build_strategies()
+                    _cache[ds] = data
+                    _upsert_xau_today(data, "NY")
+                except Exception as e:
+                    print(f"[AUTO ERROR] NY: {e}")
+                triggered.add(k_ny)
+
+            # Finalise 03:30 BJ
+            k_snap = f"{ds}-snap"
+            if bj.hour == 3 and bj.minute == 30 and k_snap not in triggered:
+                print(f"[AUTO] Finalising {ds} at 03:30")
+                _finalise_xau_today()
+                triggered.add(k_snap)
+
+        except Exception as e:
+            print(f"[SCHEDULER ERROR] {e}")
+        time.sleep(30)
+
+threading.Thread(target=_scheduler, daemon=True).start()
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.route('/')
@@ -513,6 +677,46 @@ def history():
     """Return last 30 days of saved results, newest first."""
     sorted_days = sorted(_history.keys(), reverse=True)[:30]
     return jsonify({"history": [_history[d] for d in sorted_days]})
+
+@app.route('/api/xauusd', methods=['GET'])
+def xauusd():
+    """XAUUSD focus endpoint — today's signal + 30-day daily log."""
+    bj = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+    date_str = bj.strftime('%Y-%m-%d')
+    hm = bj.hour * 60 + bj.minute
+
+    # Determine current status
+    if hm >= 900 and hm < 945:
+        session_now = "London entry window"
+    elif hm >= 1260 and hm < 1305:
+        session_now = "NY entry window"
+    elif bj.hour >= 3 and bj.hour < 9:
+        session_now = "Closed (03:00)"
+    elif hm >= 945 and hm < 1260:
+        session_now = "Waiting for NY 21:00"
+    else:
+        session_now = "In position → exit 03:00"
+
+    # Today's cached signal
+    today_signals = []
+    if date_str in _cache:
+        today_signals = [s for s in _cache[date_str] if s.get("symbol") == "XAUUSD"]
+
+    # Build 30-day log newest first
+    log_days = sorted(_xau_log.keys(), reverse=True)[:30]
+    log = [_xau_log[d] for d in log_days]
+
+    # Today's log entry
+    today_log = _xau_log.get(date_str)
+
+    return jsonify({
+        "date":         date_str,
+        "session_now":  session_now,
+        "bj_time":      bj.strftime('%H:%M:%S'),
+        "today":        today_log,
+        "signals":      today_signals,
+        "log":          log,
+    })
 
 @app.route('/api/cache/clear', methods=['POST'])
 def clear_cache():
