@@ -364,6 +364,13 @@ async function fetchStrategies(force = false) {
     cachedLabel.textContent = data.cached ? 'CACHED' : 'LIVE';
     cachedLabel.style.display = 'inline';
 
+    // If hero still shows no data (xauusd fetch beat strategies), render now
+    const selSym = _strategies[_selectedIdx] ? _strategies[_selectedIdx].symbol : null;
+    if (selSym === 'XAUUSD' && (!_xauData || !(_xauData.signals || []).length)) {
+      const s = _strategies[_selectedIdx];
+      if (s) renderCardHero(s, null);
+    }
+
     // Fetch P&L + summary right after strategies load
     await fetchPnl();
     await fetchSummary();
@@ -399,8 +406,12 @@ function selectCard(idx) {
   });
   const s = _strategies[idx];
   if (!s) return;
-  if (s.symbol === 'XAUUSD' && _xauData) {
+  if (s.symbol === 'XAUUSD' && _xauData && (_xauData.signals || []).length > 0) {
     renderXauHero(_xauData);
+  } else if (s.symbol === 'XAUUSD') {
+    // xauData not ready yet — fall back to strategy card data
+    const pnl = _pnlData.find(p => p.symbol === s.symbol) || null;
+    renderCardHero(s, pnl);
   } else {
     const pnl = _pnlData.find(p => p.symbol === s.symbol) || null;
     renderCardHero(s, pnl);

@@ -764,6 +764,15 @@ def xauusd():
     if date_str in _ny_cache:
         today_signals.append(_ny_cache[date_str])
 
+    # If still empty (page load before /api/strategies was called), build now
+    if not today_signals:
+        try:
+            strats = build_strategies()
+            _cache[date_str] = strats
+            today_signals = [s for s in strats if s.get("symbol") == "XAUUSD"]
+        except Exception as e:
+            print(f"[XAUUSD] on-demand build failed: {e}")
+
     # Build 30-day log newest first
     log_days = sorted(_xau_log.keys(), reverse=True)[:30]
     log = [_xau_log[d] for d in log_days]
