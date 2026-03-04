@@ -210,7 +210,10 @@ def entry_from_window(isub, atr, current, direction, sl_m, tp_m,
 # ── Build Strategies ──────────────────────────────────────────────────────────
 
 def build_strategies():
-    tickers = " ".join(c["ticker"] for c in STRATEGY_CONFIGS)
+    # Deduplicate tickers so yfinance doesn't get confused by repeated symbols
+    unique_tickers = list(dict.fromkeys(c["ticker"] for c in STRATEGY_CONFIGS))
+    tickers = " ".join(unique_tickers)
+    n_t = len(unique_tickers)   # use this for multi-ticker slice logic
 
     df_daily = yf.download(tickers, period="60d", interval="1d",
                            progress=False, auto_adjust=True, group_by="ticker")
@@ -219,15 +222,14 @@ def build_strategies():
     df_hourly = yf.download(tickers, period="5d", interval="1h",
                             progress=False, auto_adjust=True, group_by="ticker")
 
-    n = len(STRATEGY_CONFIGS)
     results = []
 
     for cfg in STRATEGY_CONFIGS:
         try:
             t = cfg["ticker"]
-            dsub = (df_daily[t]  if n > 1 else df_daily).dropna()
-            isub = (df_intra[t]  if n > 1 else df_intra).dropna()
-            hsub = (df_hourly[t] if n > 1 else df_hourly).dropna()
+            dsub = (df_daily[t]  if n_t > 1 else df_daily).dropna()
+            isub = (df_intra[t]  if n_t > 1 else df_intra).dropna()
+            hsub = (df_hourly[t] if n_t > 1 else df_hourly).dropna()
 
             if len(dsub) < 21: raise ValueError(f"daily: {len(dsub)} rows")
 
@@ -307,15 +309,16 @@ def build_strategies():
 # ── Live Prices ───────────────────────────────────────────────────────────────
 
 def fetch_current_prices():
-    tickers = " ".join(c["ticker"] for c in STRATEGY_CONFIGS)
+    unique_tickers = list(dict.fromkeys(c["ticker"] for c in STRATEGY_CONFIGS))
+    tickers = " ".join(unique_tickers)
+    n_t = len(unique_tickers)
     df = yf.download(tickers, period="1d", interval="5m",
                      progress=False, auto_adjust=True, group_by="ticker")
-    n = len(STRATEGY_CONFIGS)
     prices = {}
     for cfg in STRATEGY_CONFIGS:
         try:
             t = cfg["ticker"]
-            sub = (df[t] if n > 1 else df).dropna()
+            sub = (df[t] if n_t > 1 else df).dropna()
             prices[cfg["symbol"]] = float(sub["Close"].iloc[-1])
         except Exception:
             prices[cfg["symbol"]] = None
