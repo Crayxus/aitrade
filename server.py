@@ -51,7 +51,7 @@ STRATEGY_CONFIGS = [
     # XAUUSD — London primary session (15:00-15:45 BJ)
     # NY backup (21:00 BJ) is computed separately for the hero panel only
     {
-        "symbol": "XAUUSD", "display_name": "Gold",      "ticker": "GC=F",
+        "symbol": "XAUUSD", "display_name": "Gold",      "ticker": "XAUUSD=X",
         "strategy": "Intraday", "win_rate": 4, "rr_ratio": "1:1.5",
         "sl_atr": 1.0, "tp_atr": 1.5, "exit_time": UNIFIED_EXIT,
         "entry_start": "15:00", "entry_end": "15:45",
@@ -77,7 +77,7 @@ STRATEGY_CONFIGS = [
 
 # NY backup config — used only by /api/xauusd hero panel, not shown as a card
 XAUUSD_NY_CONFIG = {
-    "symbol": "XAUUSD", "display_name": "Gold · NY Backup", "ticker": "GC=F",
+    "symbol": "XAUUSD", "display_name": "Gold · NY Backup", "ticker": "XAUUSD=X",
     "strategy": "Intraday NY", "win_rate": 3, "rr_ratio": "1:1.5",
     "sl_atr": 1.0, "tp_atr": 1.5, "exit_time": UNIFIED_EXIT,
     "entry_start": "21:00", "entry_end": "21:45",
@@ -226,17 +226,34 @@ def entry_from_window(isub, atr, current, direction, sl_m, tp_m,
 
 # ── Build Strategies ──────────────────────────────────────────────────────────
 
+TICKER_FALLBACKS = {
+    "XAUUSD=X": ["GC=F"],
+    "GC=F":     ["XAUUSD=X"],
+    "NQ=F":     ["QQQ"],
+    "BTC-USD":  ["BTC-USD"],
+}
+
 def _fetch_ticker_frames(ticker_sym):
     """Download daily / 5m / 1h frames for one ticker using yf.Ticker.history()
     which is more reliable on cloud servers than yf.download()."""
-    t = yf.Ticker(ticker_sym)
-    df_d = t.history(period="60d", interval="1d").dropna()
-    df_i = t.history(period="2d",  interval="5m").dropna()
-    df_h = t.history(period="5d",  interval="1h").dropna()
-    # Normalize column names (yfinance sometimes returns mixed case)
-    for df in (df_d, df_i, df_h):
-        df.columns = [c.capitalize() for c in df.columns]
-    return df_d, df_i, df_h
+    tickers_to_try = [ticker_sym] + TICKER_FALLBACKS.get(ticker_sym, [])
+    last_err = None
+    for sym in tickers_to_try:
+        try:
+            t    = yf.Ticker(sym)
+            df_d = t.history(period="60d", interval="1d").dropna()
+            if len(df_d) < 10:
+                raise ValueError(f"{sym}: daily data too short ({len(df_d)} rows)")
+            df_i = t.history(period="2d",  interval="5m").dropna()
+            df_h = t.history(period="5d",  interval="1h").dropna()
+            for df in (df_d, df_i, df_h):
+                df.columns = [c.capitalize() for c in df.columns]
+            print(f"[FETCH] {sym} ok  daily={len(df_d)} 5m={len(df_i)} 1h={len(df_h)}")
+            return df_d, df_i, df_h
+        except Exception as e:
+            last_err = e
+            print(f"[FETCH] {sym} failed: {e}")
+    raise RuntimeError(f"All tickers failed for {ticker_sym}: {last_err}")
 
 
 def build_strategies():
