@@ -210,29 +210,33 @@ def entry_from_window(isub, atr, current, direction, sl_m, tp_m,
 
 # ── Build Strategies ──────────────────────────────────────────────────────────
 
+def _fetch_ticker_frames(ticker_sym):
+    """Download daily / 5m / 1h frames for one ticker using yf.Ticker.history()
+    which is more reliable on cloud servers than yf.download()."""
+    t = yf.Ticker(ticker_sym)
+    df_d = t.history(period="60d", interval="1d").dropna()
+    df_i = t.history(period="2d",  interval="5m").dropna()
+    df_h = t.history(period="5d",  interval="1h").dropna()
+    # Normalize column names (yfinance sometimes returns mixed case)
+    for df in (df_d, df_i, df_h):
+        df.columns = [c.capitalize() for c in df.columns]
+    return df_d, df_i, df_h
+
+
 def build_strategies():
-    # Deduplicate tickers so yfinance doesn't get confused by repeated symbols
-    unique_tickers = list(dict.fromkeys(c["ticker"] for c in STRATEGY_CONFIGS))
-    tickers = " ".join(unique_tickers)
-    n_t = len(unique_tickers)   # use this for multi-ticker slice logic
-
-    df_daily = yf.download(tickers, period="60d", interval="1d",
-                           progress=False, auto_adjust=True, group_by="ticker")
-    df_intra = yf.download(tickers, period="2d",  interval="5m",
-                           progress=False, auto_adjust=True, group_by="ticker")
-    df_hourly = yf.download(tickers, period="5d", interval="1h",
-                            progress=False, auto_adjust=True, group_by="ticker")
-
+    # Cache raw frames per ticker so we don't re-download for configs sharing a symbol
+    frames_cache = {}
+    errors = []
     results = []
 
     for cfg in STRATEGY_CONFIGS:
         try:
             t = cfg["ticker"]
-            dsub = (df_daily[t]  if n_t > 1 else df_daily).dropna()
-            isub = (df_intra[t]  if n_t > 1 else df_intra).dropna()
-            hsub = (df_hourly[t] if n_t > 1 else df_hourly).dropna()
+            if t not in frames_cache:
+                frames_cache[t] = _fetch_ticker_frames(t)
+            dsub, isub, hsub = frames_cache[t]
 
-            if len(dsub) < 21: raise ValueError(f"daily: {len(dsub)} rows")
+            if len(dsub) < 21: raise ValueError(f"daily data too short: {len(dsub)} rows")
 
             close_d = np.asarray(dsub["Close"], dtype=float).flatten()
             high_d  = np.asarray(dsub["High"],  dtype=float).flatten()
@@ -302,27 +306,32 @@ def build_strategies():
                 "is_xau":           cfg.get("is_xau", False),
             })
         except Exception as e:
-            print(f"[WARN] {cfg['symbol']}: {e}")
+            msg = f"{cfg['symbol']}: {e}"
+            print(f"[WARN] {msg}")
+            errors.append(msg)
 
-    if not results: raise RuntimeError("All fetches failed")
+    if not results:
+        raise RuntimeError("All fetches failed — " + " | ".join(errors))
     return results
 
 # ── Live Prices ───────────────────────────────────────────────────────────────
 
 def fetch_current_prices():
-    unique_tickers = list(dict.fromkeys(c["ticker"] for c in STRATEGY_CONFIGS))
-    tickers = " ".join(unique_tickers)
-    n_t = len(unique_tickers)
-    df = yf.download(tickers, period="1d", interval="5m",
-                     progress=False, auto_adjust=True, group_by="ticker")
     prices = {}
+    seen = set()
     for cfg in STRATEGY_CONFIGS:
-        try:
-            t = cfg["ticker"]
-            sub = (df[t] if n_t > 1 else df).dropna()
-            prices[cfg["symbol"]] = float(sub["Close"].iloc[-1])
-        except Exception:
-            prices[cfg["symbol"]] = None
+        t = cfg["ticker"]
+        if t not in seen:
+            try:
+                sub = yf.Ticker(t).history(period="1d", interval="5m").dropna()
+                sub.columns = [c.capitalize() for c in sub.columns]
+                val = float(sub["Close"].iloc[-1])
+            except Exception:
+                val = None
+            seen.add(t)
+        else:
+            val = prices.get(cfg["symbol"])
+        prices[cfg["symbol"]] = val
     return prices
 
 # ── Exit Time ─────────────────────────────────────────────────────────────────
@@ -421,13 +430,7 @@ _ny_cache = {}   # {date_str: strategy_dict}
 def build_ny_signal():
     """Build the NY-session XAUUSD signal using XAUUSD_NY_CONFIG."""
     cfg = XAUUSD_NY_CONFIG
-    df_daily  = yf.download(cfg["ticker"], period="60d", interval="1d",  progress=False, auto_adjust=True)
-    df_intra  = yf.download(cfg["ticker"], period="2d",  interval="5m",  progress=False, auto_adjust=True)
-    df_hourly = yf.download(cfg["ticker"], period="5d",  interval="1h",  progress=False, auto_adjust=True)
-
-    dsub = df_daily.dropna()
-    isub = df_intra.dropna()
-    hsub = df_hourly.dropna()
+    dsub, isub, hsub = _fetch_ticker_frames(cfg["ticker"])
 
     close_d = np.asarray(dsub["Close"], dtype=float).flatten()
     high_d  = np.asarray(dsub["High"],  dtype=float).flatten()
