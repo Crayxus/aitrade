@@ -105,11 +105,31 @@ header {
   display: flex; flex-direction: column; align-items: center; gap: 4px;
 }
 
-#clock {
+.clocks {
+  display: flex; align-items: center; gap: 12px;
+}
+
+.clock-block {
+  display: flex; flex-direction: column; align-items: center;
+}
+
+.clock-label {
+  font-size: 9px; color: var(--muted); letter-spacing: 1.5px; margin-top: 1px;
+}
+
+.clock-sep {
+  color: var(--border2); font-size: 20px; margin-bottom: 10px;
+}
+
+#clock, #clock-seattle {
   font-family: var(--mono);
-  font-size: 28px; font-weight: 700;
+  font-size: 22px; font-weight: 700;
   letter-spacing: 2px;
   color: var(--text);
+}
+
+#clock-seattle {
+  color: var(--muted2);
 }
 
 .session-pill {
