@@ -355,12 +355,17 @@ def fetch_current_prices():
     for cfg in STRATEGY_CONFIGS:
         t = cfg["ticker"]
         if t not in seen:
-            try:
-                sub = yf.Ticker(t).history(period="1d", interval="5m").dropna()
-                sub.columns = [c.capitalize() for c in sub.columns]
-                val = float(sub["Close"].iloc[-1])
-            except Exception:
-                val = None
+            tickers_to_try = [t] + TICKER_FALLBACKS.get(t, [])
+            val = None
+            for sym in tickers_to_try:
+                try:
+                    sub = yf.Ticker(sym).history(period="1d", interval="5m").dropna()
+                    sub.columns = [c.capitalize() for c in sub.columns]
+                    if len(sub) > 0:
+                        val = float(sub["Close"].iloc[-1])
+                        break
+                except Exception:
+                    continue
             seen.add(t)
         else:
             val = prices.get(cfg["symbol"])
@@ -754,6 +759,8 @@ def xauusd():
         session_now = "Closed (03:00)"
     elif hm >= 945 and hm < 1260:
         session_now = "Waiting for NY 21:00"
+    elif hm < 900:
+        session_now = "London opens 15:00"
     else:
         session_now = "In position → exit 03:00"
 

@@ -36,6 +36,10 @@ function updateClock() {
     dot.className = 'dot dot-yellow';
     lbl.textContent = 'NY OPENS 21:00';
     pill.style.borderColor = 'rgba(245,200,66,.3)';
+  } else if (min >= 540 && min < 900) {
+    dot.className = 'dot dot-yellow';
+    lbl.textContent = 'LONDON 15:00';
+    pill.style.borderColor = 'rgba(245,200,66,.3)';
   } else {
     dot.className = 'dot dot-yellow';
     lbl.textContent = 'EXIT 03:00';
@@ -223,6 +227,10 @@ function updateCountdown() {
 
   if (h >= 3 && h < 9) {
     // Between sessions — count to London open 15:00
+    target.setHours(15, 0, 0, 0);
+    label = 'LONDON IN';
+  } else if (min >= 540 && min < 900) {
+    // Pre-London (09:00–15:00 BJ) — count to London open
     target.setHours(15, 0, 0, 0);
     label = 'LONDON IN';
   } else if (min >= 945 && min < 1260) {
