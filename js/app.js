@@ -80,13 +80,20 @@ function buildRangeBar(s, pnl) {
 
   const pctOf = v => Math.min(100, Math.max(0, ((v - sl) / span) * 100));
 
-  const entryLeft  = pctOf(el);
-  const entryWidth = pctOf(eh) - entryLeft;
+  const entryLeft    = pctOf(el);
+  const entryWidth   = pctOf(eh) - entryLeft;
+  const entryMidPct  = pctOf(s.entry_mid != null ? s.entry_mid : (el + eh) / 2);
 
-  let nowLeft = null, nowClass = 'neutral';
-  if (pnl) {
-    nowLeft = pctOf(pnl.current_price);
+  let nowLeft = null, nowClass = 'neutral', fillHtml = '';
+  if (pnl && pnl.status !== 'pending') {
+    nowLeft  = pctOf(pnl.current_price);
     nowClass = pnl.status;
+    if (pnl.status === 'winning' || pnl.status === 'losing') {
+      const fl = Math.min(entryMidPct, nowLeft);
+      const fw = Math.abs(nowLeft - entryMidPct);
+      const fc = pnl.status === 'winning' ? 'rgba(0,217,126,.35)' : 'rgba(255,77,106,.35)';
+      fillHtml = `<div class="range-fill" style="left:${fl.toFixed(1)}%;width:${Math.max(1,fw).toFixed(1)}%;background:${fc}"></div>`;
+    }
   }
 
   const fmt = v => String(v);
@@ -99,6 +106,7 @@ function buildRangeBar(s, pnl) {
     <span class="lbl-tp">TP</span>
   </div>
   <div class="range-track">
+    ${fillHtml}
     <div class="range-entry" style="left:${entryLeft.toFixed(1)}%;width:${Math.max(2,entryWidth).toFixed(1)}%"></div>
     ${nowLeft !== null ? `<div class="range-now ${nowClass}" style="left:${nowLeft.toFixed(1)}%"></div>` : ''}
   </div>
@@ -147,14 +155,36 @@ function pnlChip(pnl) {
 }
 
 // ── Card ──
+function buildPnlBanner(pnl) {
+  if (!pnl || pnl.status === 'pending') return '';
+  if (pnl.status === 'winning' || pnl.status === 'hit_tp') {
+    return `<div class="pnl-banner w">
+      <div><div class="pnl-entry-label">ENTRY</div><div class="pnl-entry-val">${escHtml(String(pnl.entry_mid))}</div></div>
+      <span class="pnl-big w">▲ ${escHtml(pnl.pnl_pct)}</span>
+      <span class="pnl-usd-big w">${escHtml(pnl.pnl_usd)}</span>
+    </div>`;
+  }
+  if (pnl.status === 'losing' || pnl.status === 'hit_sl') {
+    return `<div class="pnl-banner l">
+      <div><div class="pnl-entry-label">ENTRY</div><div class="pnl-entry-val">${escHtml(String(pnl.entry_mid))}</div></div>
+      <span class="pnl-big l">▼ ${escHtml(pnl.pnl_pct)}</span>
+      <span class="pnl-usd-big l">${escHtml(pnl.pnl_usd)}</span>
+    </div>`;
+  }
+  return '';
+}
+
 function renderCard(s, idx, pnl) {
   const isLong = s.direction === 'LONG';
   const dirClass = isLong ? 'long' : 'short';
   const momPos = s.mom_pct && !s.mom_pct.startsWith('-');
   const selClass = idx === _selectedIdx ? ' selected' : '';
+  const posClass = pnl && (pnl.status === 'winning' || pnl.status === 'hit_tp') ? ' open-win'
+                 : pnl && (pnl.status === 'losing'  || pnl.status === 'hit_sl') ? ' open-loss'
+                 : '';
 
   return `
-<div class="card ${dirClass}${selClass}" id="card-${idx}" onclick="selectCard(${idx})">
+<div class="card ${dirClass}${selClass}${posClass}" id="card-${idx}" onclick="selectCard(${idx})">
   <div class="card-top">
     <div class="sym-block">
       <div class="sym">${escHtml(s.symbol)}</div>
@@ -174,6 +204,7 @@ function renderCard(s, idx, pnl) {
 
   <div class="spark-wrap">${buildSparkline(s.sparkline, isLong)}</div>
 
+  ${buildPnlBanner(pnl)}
   ${buildRangeBar(s, pnl)}
   ${buildSignalRow(s)}
 
@@ -422,7 +453,7 @@ function selectCard(idx) {
   const s = _strategies[idx];
   if (!s) return;
   if (s.symbol === 'XAUUSD' && _xauData && (_xauData.signals || []).length > 0) {
-    renderXauHero(_xauData);
+    renderXauHero(_xauData, _pnlData.find(p => p.symbol === 'XAUUSD') || null);
   } else if (s.symbol === 'XAUUSD') {
     // xauData not ready yet — fall back to strategy card data
     const pnl = _pnlData.find(p => p.symbol === s.symbol) || null;
@@ -434,6 +465,26 @@ function selectCard(idx) {
 }
 
 // ── Generic Hero (non-XAUUSD) ──
+function buildHeroPnlHtml(pnl) {
+  if (!pnl || pnl.status === 'pending') return `<span class="xau-pnl neutral">⏳ ${escHtml(pnl ? pnl.entry_start || '–' : '–')} BJ</span>`;
+  if (pnl.status === 'winning' || pnl.status === 'hit_tp') {
+    return `<div class="pnl-hero-box w">
+      <div class="pnl-hero-pct">▲ ${escHtml(pnl.pnl_pct)}</div>
+      <div class="pnl-hero-usd">${escHtml(pnl.pnl_usd)}</div>
+      <div class="pnl-hero-entry">入场 @ ${escHtml(String(pnl.entry_mid))}</div>
+    </div>`;
+  }
+  if (pnl.status === 'losing' || pnl.status === 'hit_sl') {
+    return `<div class="pnl-hero-box l">
+      <div class="pnl-hero-pct">▼ ${escHtml(pnl.pnl_pct)}</div>
+      <div class="pnl-hero-usd">${escHtml(pnl.pnl_usd)}</div>
+      <div class="pnl-hero-entry">入场 @ ${escHtml(String(pnl.entry_mid))}</div>
+    </div>`;
+  }
+  const cls = xauStatusClass(pnl.status);
+  return `<span class="xau-pnl ${cls}">${xauStatusLabel(pnl.status)}&ensp;${escHtml(pnl.pnl_pct || '–')}</span>`;
+}
+
 function renderCardHero(s, pnl) {
   const hero = document.getElementById('xau-hero');
   if (!hero) return;
@@ -442,11 +493,7 @@ function renderCardHero(s, pnl) {
   const dirClass = isLong ? 'long' : 'short';
   const dirLabel = isLong ? '▲ LONG' : '▼ SHORT';
 
-  let pnlHtml = '<span class="xau-pnl neutral">–</span>';
-  if (pnl) {
-    const cls = xauStatusClass(pnl.status);
-    pnlHtml = `<span class="xau-pnl ${cls}">${xauStatusLabel(pnl.status)}&ensp;${escHtml(pnl.pnl_pct || '–')}</span>`;
-  }
+  let pnlHtml = buildHeroPnlHtml(pnl);
 
   const names = { daily_ema:'EMA20', weekly_mom:'MOM', gap:'GAP', rsi:'RSI', hourly:'HR', ema50:'EMA50' };
   let sigHtml = '';
@@ -519,6 +566,16 @@ async function fetchPnl() {
 
     renderAll(_strategies, pnlMap);
     buildTicker(_strategies);
+
+    // Refresh hero panel with live P&L
+    const sel = _strategies[_selectedIdx];
+    if (sel) {
+      if (sel.symbol === 'XAUUSD' && _xauData && (_xauData.signals || []).length) {
+        renderXauHero(_xauData, pnlMap['XAUUSD'] || null);
+      } else {
+        renderCardHero(sel, pnlMap[sel.symbol] || null);
+      }
+    }
 
     const el = document.getElementById('pnl-updated');
     if (el) el.textContent = `UPDATED ${data.updated_at}`;
@@ -642,7 +699,7 @@ function xauStatusLabel(status) {
   return m[status] || (status || '–');
 }
 
-function renderXauHero(data) {
+function renderXauHero(data, livePnl) {
   const hero = document.getElementById('xau-hero');
   if (!hero) return;
 
@@ -654,10 +711,15 @@ function renderXauHero(data) {
   const dirClass = isLong === null ? 'neutral' : isLong ? 'long' : 'short';
   const dirLabel = isLong === null ? '待计算' : isLong ? '▲ LONG' : '▼ SHORT';
 
-  let pnlHtml = '<span class="xau-pnl neutral">–</span>';
-  if (log) {
+  // Live P&L takes priority over log
+  let pnlHtml;
+  if (livePnl && livePnl.status !== 'pending') {
+    pnlHtml = buildHeroPnlHtml(livePnl);
+  } else if (log && log.status !== 'open') {
     const cls = xauStatusClass(log.status);
     pnlHtml = `<span class="xau-pnl ${cls}">${xauStatusLabel(log.status)}&ensp;${escHtml(log.pnl_pct || '–')}</span>`;
+  } else {
+    pnlHtml = `<span class="xau-pnl neutral">–</span>`;
   }
 
   const names = { daily_ema:'EMA20', weekly_mom:'MOM', gap:'GAP', rsi:'RSI', hourly:'HR', ema50:'EMA50' };
@@ -757,7 +819,7 @@ async function fetchXauusd() {
     const data = await res.json();
     _xauData = data;
     const selSym = _strategies[_selectedIdx] ? _strategies[_selectedIdx].symbol : 'XAUUSD';
-    if (selSym === 'XAUUSD') renderXauHero(data);
+    if (selSym === 'XAUUSD') renderXauHero(data, _pnlData.find(p => p.symbol === 'XAUUSD') || null);
     renderXauLog(data.log || []);
   } catch (e) {
     const hero = document.getElementById('xau-hero');

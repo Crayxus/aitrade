@@ -758,6 +758,93 @@ main { padding: 24px 28px; max-width: 1440px; margin: 0 auto; }
 .hist-green { color: var(--green); }
 .hist-red   { color: var(--red); }
 
+/* ── Active Position Glow ── */
+.card.open-win {
+  border-color: var(--green) !important;
+  animation: glow-win 2s ease-in-out infinite;
+}
+.card.open-loss {
+  border-color: var(--red) !important;
+  animation: glow-loss 2s ease-in-out infinite;
+}
+@keyframes glow-win  {
+  0%,100% { box-shadow: 0 0 0 1px rgba(0,217,126,.2),  0 4px 20px rgba(0,0,0,.35); }
+  50%     { box-shadow: 0 0 0 1px rgba(0,217,126,.55), 0 0 36px rgba(0,217,126,.22); }
+}
+@keyframes glow-loss {
+  0%,100% { box-shadow: 0 0 0 1px rgba(255,77,106,.2),  0 4px 20px rgba(0,0,0,.35); }
+  50%     { box-shadow: 0 0 0 1px rgba(255,77,106,.55), 0 0 36px rgba(255,77,106,.22); }
+}
+
+/* ── P&L Banner (in card, big) ── */
+.pnl-banner {
+  margin: 0 14px 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.pnl-banner.w { background: rgba(0,217,126,.10);  border: 1px solid rgba(0,217,126,.35); }
+.pnl-banner.l { background: rgba(255,77,106,.10); border: 1px solid rgba(255,77,106,.35); }
+.pnl-big {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+.pnl-big.w { color: var(--green); }
+.pnl-big.l { color: var(--red); }
+.pnl-usd-big {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+}
+.pnl-usd-big.w { color: var(--green); }
+.pnl-usd-big.l { color: var(--red); }
+.pnl-entry-label { font-size: 9px;  color: var(--muted);  letter-spacing: 0.5px; }
+.pnl-entry-val   { font-family: var(--mono); font-size: 11px; color: var(--muted2); }
+
+/* ── Range fill (entry→current) ── */
+.range-fill {
+  position: absolute;
+  height: 100%;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+/* ── Hero P&L Box (big, in hero panel) ── */
+.pnl-hero-box {
+  padding: 14px 18px;
+  border-radius: 10px;
+  text-align: center;
+  width: 100%;
+}
+.pnl-hero-box.w { background: rgba(0,217,126,.12);  border: 1px solid rgba(0,217,126,.45);  animation: glow-win  2s ease-in-out infinite; }
+.pnl-hero-box.l { background: rgba(255,77,106,.12); border: 1px solid rgba(255,77,106,.45); animation: glow-loss 2s ease-in-out infinite; }
+.pnl-hero-pct {
+  font-family: var(--mono);
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1;
+}
+.pnl-hero-box.w .pnl-hero-pct { color: var(--green); }
+.pnl-hero-box.l .pnl-hero-pct { color: var(--red); }
+.pnl-hero-usd {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 700;
+  margin-top: 6px;
+}
+.pnl-hero-box.w .pnl-hero-usd { color: var(--green); }
+.pnl-hero-box.l .pnl-hero-usd { color: var(--red); }
+.pnl-hero-entry {
+  font-size: 11px;
+  color: var(--muted2);
+  font-family: var(--mono);
+  margin-top: 8px;
+}
+
 /* ── Footer ── */
 footer {
   text-align: center; padding: 20px 28px;
