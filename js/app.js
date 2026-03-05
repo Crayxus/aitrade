@@ -141,6 +141,7 @@ function stars(n) {
 // ── P&L Chip ──
 function pnlChip(pnl) {
   if (!pnl) return `<span class="pnl-chip neutral">–</span>`;
+  if (pnl.status === 'pending') return `<span class="pnl-chip neutral">⏳ ${escHtml(pnl.entry_start)} BJ</span>`;
   const icons = { winning: '▲', losing: '▼', hit_tp: '✓', hit_sl: '✕', time_exit: '⏰' };
   return `<span class="pnl-chip ${pnl.status}">${icons[pnl.status] || ''} ${escHtml(pnl.pnl_pct)}</span>`;
 }
@@ -260,19 +261,23 @@ function updateCountdown() {
 function updatePortfolioPnl() {
   if (!_pnlData.length) return;
 
-  const total = _pnlData.reduce((sum, p) => sum + parsePnlUsd(p.pnl_usd), 0);
+  const active = _pnlData.filter(p => p.status !== 'pending');
+  const total = active.reduce((sum, p) => sum + parsePnlUsd(p.pnl_usd), 0);
   const sign  = total >= 0 ? '+' : '';
   const pnlEl = document.getElementById('portfolio-pnl');
   if (pnlEl) {
-    pnlEl.textContent = `${sign}$${Math.round(total)}`;
+    pnlEl.textContent = active.length ? `${sign}$${Math.round(total)}` : '–';
     pnlEl.className   = `live-value ${total > 0 ? 'green' : total < 0 ? 'red' : 'muted'}`;
   }
 
   const cntEl = document.getElementById('position-count');
   if (cntEl) {
-    const open   = _pnlData.filter(p => p.status === 'winning' || p.status === 'losing').length;
-    const closed = _pnlData.filter(p => ['hit_tp','hit_sl','time_exit'].includes(p.status)).length;
-    cntEl.textContent = `${open} OPEN · ${closed} CLOSED`;
+    const open    = _pnlData.filter(p => p.status === 'winning' || p.status === 'losing').length;
+    const closed  = _pnlData.filter(p => ['hit_tp','hit_sl','time_exit'].includes(p.status)).length;
+    const pending = _pnlData.filter(p => p.status === 'pending').length;
+    let txt = `${open} OPEN · ${closed} CLOSED`;
+    if (pending > 0) txt += ` · ${pending} PENDING`;
+    cntEl.textContent = txt;
     cntEl.className   = 'live-value muted';
   }
 
@@ -291,14 +296,16 @@ function updatePerfBar() {
 
   if (segsEl) {
     segsEl.innerHTML = _pnlData.map(p => {
-      const cls = (p.status === 'winning' || p.status === 'hit_tp') ? 'win'
+      const cls = p.status === 'pending'  ? 'neutral'
+                : (p.status === 'winning' || p.status === 'hit_tp') ? 'win'
                 : (p.status === 'losing'  || p.status === 'hit_sl') ? 'loss'
                 : p.status === 'time_exit' ? 'exit'
                 : 'neutral';
-      const sym = escHtml(p.symbol).replace('USD','').replace('=X','');
+      const sym    = escHtml(p.symbol).replace('USD','').replace('=X','');
+      const pctTxt = p.status === 'pending' ? `⏳${escHtml(p.entry_start)}` : escHtml(p.pnl_pct);
       return `<div class="perf-seg ${cls}" title="${escHtml(p.symbol)} ${escHtml(p.pnl_pct)} ${escHtml(p.pnl_usd)}">
         <span class="perf-sym">${sym}</span>
-        <span class="perf-pct">${escHtml(p.pnl_pct)}</span>
+        <span class="perf-pct">${pctTxt}</span>
       </div>`;
     }).join('');
   }

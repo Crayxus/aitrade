@@ -390,6 +390,26 @@ def is_past_exit(exit_time_str):
 
 def calc_pnl(strategy, current_price):
     if current_price is None: return None
+
+    # Not yet in position — entry window hasn't opened
+    entry_start = strategy.get("entry_start", "00:00")
+    bj = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+    bj_hm = bj.hour * 60 + bj.minute
+    es_h, es_m = map(int, entry_start.split(":"))
+    if bj_hm < es_h * 60 + es_m:
+        return {
+            "symbol":        strategy["symbol"],
+            "current_price": fmt_price(current_price, current_price),
+            "entry_mid":     fmt_price(strategy["entry_mid"], strategy["entry_mid"]),
+            "entry_start":   entry_start,
+            "pnl_pct":       "–",
+            "pnl_usd":       "–",
+            "pnl_value":     0,
+            "status":        "pending",
+            "exit_time":     strategy.get("exit_time", UNIFIED_EXIT),
+            "progress":      0,
+        }
+
     direction   = strategy["direction"]
     entry_mid   = strategy["entry_mid"]
     take_profit = strategy["take_profit"]
