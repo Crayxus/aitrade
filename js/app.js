@@ -11,6 +11,12 @@ function updateClock() {
   const h = bj.getHours(), m = bj.getMinutes(), s = bj.getSeconds();
   document.getElementById('clock').textContent = `${pad2(h)}:${pad2(m)}:${pad2(s)}`;
 
+  const seattleStr = new Date().toLocaleTimeString('en-US', {
+    timeZone: 'America/Los_Angeles', hour12: false,
+    hour: '2-digit', minute: '2-digit', second: '2-digit'
+  });
+  document.getElementById('clock-seattle').textContent = seattleStr;
+
   const min = h * 60 + m;
   const dot = document.getElementById('session-dot');
   const lbl = document.getElementById('session-label');
