@@ -872,18 +872,10 @@ def _scheduler():
             if bj.hour == 3 and bj.minute == 30 and k_snap not in triggered:
                 print(f"[AUTO] Finalising {ds} at 03:30")
                 _finalise_xau_today()
-                # Also snapshot all-symbol history if cache exists
+                # Snapshot all-symbol history for previous day
                 prev_ds = (bj - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-                if prev_ds in _cache and prev_ds not in _history:
-                    try:
-                        prices = fetch_current_prices()
-                        pnl_list = [calc_pnl(s, prices.get(s["symbol"])) for s in _cache[prev_ds]]
-                        pnl_list = [p for p in pnl_list if p]
-                        if pnl_list:
-                            snapshot_day(prev_ds, pnl_list)
-                            print(f"[AUTO] Snapshot saved for {prev_ds}: {len(pnl_list)} positions")
-                    except Exception as e:
-                        print(f"[AUTO] snapshot error: {e}")
+                if prev_ds not in _history:
+                    threading.Thread(target=_startup_finalize_history, daemon=True).start()
                 triggered.add(k_snap)
 
         except Exception as e:
