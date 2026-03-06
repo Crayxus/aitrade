@@ -793,6 +793,105 @@ main { padding: 24px 28px; max-width: 1440px; margin: 0 auto; }
 .hist-green { color: var(--green); }
 .hist-red   { color: var(--red); }
 
+/* ── Daily P&L Bar Chart ── */
+.hist-day-list {
+  padding: 4px 0;
+}
+
+.hist-day-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 16px;
+  border-bottom: 1px solid rgba(255,255,255,.04);
+  font-size: 12px;
+}
+.hist-day-row:last-child { border-bottom: none; }
+.hist-day-row:hover { background: var(--surface2); }
+
+.hist-day-date {
+  font-family: var(--mono);
+  color: var(--muted2);
+  min-width: 36px;
+  font-size: 11px;
+  letter-spacing: .5px;
+}
+
+.hist-day-bars {
+  display: flex;
+  align-items: center;
+  width: 180px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+.hist-bar-left {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.hist-bar-right {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.hist-neg-bar {
+  background: var(--red);
+  height: 100%;
+  border-radius: 3px 0 0 3px;
+  opacity: .75;
+  transition: width .3s ease;
+}
+
+.hist-pos-bar {
+  background: var(--green);
+  height: 100%;
+  border-radius: 0 3px 3px 0;
+  opacity: .75;
+  transition: width .3s ease;
+}
+
+.hist-center-line {
+  width: 2px;
+  height: 18px;
+  background: var(--muted);
+  flex-shrink: 0;
+}
+
+.hist-day-usd {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 13px;
+  min-width: 64px;
+}
+
+.hist-day-wl {
+  min-width: 44px;
+  font-size: 11px;
+}
+
+.hist-day-detail {
+  font-size: 11px;
+  color: var(--muted2);
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Card P&L footer row */
+.card-pnl-foot {
+  display: flex;
+  align-items: center;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
 /* ── Active Position Glow ── */
 .card.open-win {
   border-color: var(--green) !important;

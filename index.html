@@ -8,13 +8,6 @@
 </head>
 <body>
 
-<!-- Ticker Tape -->
-<div class="ticker-tape">
-  <div class="ticker-inner" id="ticker-inner">
-    <!-- populated by JS -->
-  </div>
-</div>
-
 <!-- Header -->
 <header>
   <div class="logo">
@@ -31,11 +24,6 @@
         <div id="clock">--:--:--</div>
         <div class="clock-label">BEIJING</div>
       </div>
-      <div class="clock-sep">·</div>
-      <div class="clock-block">
-        <div id="clock-seattle">--:--:--</div>
-        <div class="clock-label">SEATTLE</div>
-      </div>
     </div>
     <div class="session-pill">
       <span class="dot dot-red" id="session-dot"></span>
@@ -44,7 +32,6 @@
   </div>
 
   <div class="header-right">
-    <span id="pnl-updated"></span>
     <span id="date-display"></span>
     <button id="refresh-btn">
       <span id="btn-icon">↻</span>
@@ -129,9 +116,6 @@
   </div>
   <div class="grid" id="grid"></div>
 
-  <!-- Day Summary Panel -->
-  <div id="summary-panel" style="display:none"></div>
-
   <!-- Trading History Panel -->
   <div id="history-panel">
     <div class="hist-header">
@@ -139,14 +123,7 @@
       <span class="hist-sub" id="hist-sub">近30天记录</span>
     </div>
     <div class="hist-scroll">
-      <table class="hist-table">
-        <thead><tr>
-          <th>DATE</th><th>W/L</th><th>WIN RATE</th><th>AVG P&L</th><th>TOTAL USD</th><th>BEST</th><th>WORST</th>
-        </tr></thead>
-        <tbody id="hist-body">
-          <tr class="hist-row"><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">暂无记录 — 今天交易完成后自动保存</td></tr>
-        </tbody>
-      </table>
+      <!-- populated by renderHistoryTable() -->
     </div>
   </div>
 </main>

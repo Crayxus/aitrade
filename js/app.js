@@ -11,12 +11,6 @@ function updateClock() {
   const h = bj.getHours(), m = bj.getMinutes(), s = bj.getSeconds();
   document.getElementById('clock').textContent = `${pad2(h)}:${pad2(m)}:${pad2(s)}`;
 
-  const seattleStr = new Date().toLocaleTimeString('en-US', {
-    timeZone: 'America/Los_Angeles', hour12: false,
-    hour: '2-digit', minute: '2-digit', second: '2-digit'
-  });
-  document.getElementById('clock-seattle').textContent = seattleStr;
-
   const min = h * 60 + m;
   const dot = document.getElementById('session-dot');
   const lbl = document.getElementById('session-label');
@@ -198,7 +192,6 @@ function renderCard(s, idx, pnl) {
     </div>
     <div class="dir-block">
       <div class="dir-badge ${dirClass}">${isLong ? '▲ LONG' : '▼ SHORT'}</div>
-      <div class="strategy-tag">${escHtml(s.strategy)}</div>
       <div class="strategy-tag" style="margin-top:2px;color:var(--blue)">⏰ ${escHtml(s.entry_start||'')} BJ</div>
     </div>
   </div>
@@ -208,33 +201,8 @@ function renderCard(s, idx, pnl) {
     <div class="price-mom ${momPos ? 'pos' : 'neg'}">${escHtml(s.mom_pct)}</div>
   </div>
 
-  <div class="spark-wrap">${buildSparkline(s.sparkline, isLong)}</div>
-
-  ${buildPnlBanner(pnl)}
   ${buildRangeBar(s, pnl)}
-  ${buildSignalRow(s)}
-
-  <div class="card-meta">
-    <div class="meta-cell">
-      <span class="meta-label">推荐手数</span>
-      <span class="meta-value" style="color:var(--gold)">${escHtml(String(s.recommended_lots))} <span style="font-size:10px;color:var(--muted)">lot</span></span>
-      <span style="font-size:10px;color:var(--muted2);font-family:var(--mono)">${escHtml(s.rr_ratio)}</span>
-    </div>
-    <div class="meta-cell" style="border-left:1px solid var(--border)">
-      <span class="meta-label">止盈 / 止损</span>
-      <span style="font-family:var(--mono);font-size:12px">
-        <span style="color:var(--green);font-weight:700">+$${escHtml(String(s.profit_usd))}</span>
-        <span style="color:var(--muted);margin:0 3px">/</span>
-        <span style="color:var(--red);font-weight:700">-$${escHtml(String(s.risk_usd))}</span>
-      </span>
-      <span style="font-size:10px;color:var(--muted)">预计盈亏 (USD)</span>
-    </div>
-    <div class="meta-cell" style="border-left:1px solid var(--border)">
-      <span class="meta-label">P&L</span>
-      ${pnlChip(pnl)}
-      <span style="font-size:10px;color:var(--muted)">${stars(s.win_rate)}</span>
-    </div>
-  </div>
+  <div class="card-pnl-foot">${pnlChip(pnl)}</div>
 </div>`;
 }
 
@@ -410,7 +378,6 @@ async function fetchStrategies(force = false) {
 
     _strategies = data.strategies;
     renderAll(_strategies, null);
-    buildTicker(_strategies);
 
     statusText.textContent = `${_strategies.length} SIGNALS  ·  ${data.date}`;
     cachedLabel.textContent = data.cached ? 'CACHED' : 'LIVE';
@@ -423,9 +390,8 @@ async function fetchStrategies(force = false) {
       if (s) renderCardHero(s, null);
     }
 
-    // Fetch P&L + summary right after strategies load
+    // Fetch P&L right after strategies load
     await fetchPnl();
-    await fetchSummary();
 
   } catch (err) {
     document.getElementById('grid').innerHTML = `
@@ -458,16 +424,21 @@ function selectCard(idx) {
   });
   const s = _strategies[idx];
   if (!s) return;
+
+  // Show XAUUSD log only when XAUUSD is selected
+  const logWrap = document.getElementById('xau-log-wrap');
+  if (logWrap) logWrap.style.display = s.symbol === 'XAUUSD' ? 'block' : 'none';
+
   if (s.symbol === 'XAUUSD' && _xauData && (_xauData.signals || []).length > 0) {
     renderXauHero(_xauData, _pnlData.find(p => p.symbol === 'XAUUSD') || null);
-  } else if (s.symbol === 'XAUUSD') {
-    // xauData not ready yet — fall back to strategy card data
-    const pnl = _pnlData.find(p => p.symbol === s.symbol) || null;
-    renderCardHero(s, pnl);
   } else {
     const pnl = _pnlData.find(p => p.symbol === s.symbol) || null;
     renderCardHero(s, pnl);
   }
+
+  // Scroll hero into view so user sees the update
+  const sec = document.getElementById('xau-section');
+  if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 // ── Generic Hero (non-XAUUSD) ──
@@ -498,18 +469,6 @@ function renderCardHero(s, pnl) {
   const isLong   = s.direction === 'LONG';
   const dirClass = isLong ? 'long' : 'short';
   const dirLabel = isLong ? '▲ LONG' : '▼ SHORT';
-
-  let pnlHtml = buildHeroPnlHtml(pnl);
-
-  const names = { daily_ema:'EMA20', weekly_mom:'MOM', gap:'GAP', rsi:'RSI', hourly:'HR', ema50:'EMA50' };
-  let sigHtml = '';
-  if (s.signals) {
-    sigHtml = Object.entries(s.signals).map(([k, icon]) => {
-      const cls = icon === '▲' ? 'sig-up' : icon === '▼' ? 'sig-dn' : 'sig-flat';
-      return `<span class="xau-sig ${cls}">${icon} ${names[k]||k}</span>`;
-    }).join('');
-  }
-
   const sym  = s.symbol;
   const base = sym.endsWith('USD') ? sym.slice(0, -3) : sym;
   const quot = sym.endsWith('USD') ? 'USD' : '';
@@ -519,19 +478,10 @@ function renderCardHero(s, pnl) {
       <div class="xau-hero-left">
         <div class="xau-sym">${escHtml(base)}<span>${escHtml(quot)}</span></div>
         <div class="xau-hero-price">${escHtml(String(s.current))}</div>
-        <div class="xau-hero-sess">${escHtml(s.session || '–')}</div>
+        <div class="xau-hero-sess">${escHtml(s.session || '–')} · ${escHtml(s.entry_start||'–')} BJ</div>
       </div>
       <div class="xau-hero-mid">
         <div class="xau-dir-badge ${dirClass}">${dirLabel}</div>
-        <div class="xau-conf">${escHtml(s.confidence_pct||'–')} confidence</div>
-        <div class="xau-sigs">${sigHtml || '<span class="muted2">–</span>'}</div>
-        <div class="xau-session-chips">
-          <div class="xau-sess-chip ${dirClass}">
-            <span class="chip-sess">${escHtml(s.session||'–')} · ${escHtml(s.entry_start||'–')} BJ</span>
-            <span class="chip-dir fw">${escHtml(s.direction)}</span>
-            <span class="chip-conf muted2">${escHtml(s.confidence_pct||'–')}</span>
-          </div>
-        </div>
       </div>
       <div class="xau-hero-right">
         <div class="xau-levels">
@@ -551,7 +501,7 @@ function renderCardHero(s, pnl) {
             <span class="xau-pct red">${escHtml(s.sl_pct||'')}</span>
           </div>
         </div>
-        ${pnlHtml}
+        ${buildHeroPnlHtml(pnl)}
       </div>
     </div>`;
 }
@@ -582,9 +532,6 @@ async function fetchPnl() {
         renderCardHero(sel, pnlMap[sel.symbol] || null);
       }
     }
-
-    const el = document.getElementById('pnl-updated');
-    if (el) el.textContent = `UPDATED ${data.updated_at}`;
   } catch {}
 }
 
@@ -702,33 +649,54 @@ function updateYesterdayBar(history) {
 }
 
 function renderHistoryTable(history) {
-  const tbody  = document.getElementById('hist-body');
-  const subEl  = document.getElementById('hist-sub');
-  if (!tbody) return;
+  const scrollEl = document.querySelector('#history-panel .hist-scroll');
+  const subEl    = document.getElementById('hist-sub');
+  if (!scrollEl) return;
 
   if (!history.length) {
-    tbody.innerHTML = `<tr class="hist-row"><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">
-      暂无记录 — 今天交易完成后自动保存</td></tr>`;
+    scrollEl.innerHTML = `<div style="text-align:center;color:var(--muted);padding:32px;font-size:13px;letter-spacing:1px">暂无记录 — 今天交易完成后自动保存</div>`;
     if (subEl) subEl.textContent = '近30天记录';
     return;
   }
 
   if (subEl) subEl.textContent = `近30天记录 · 共 ${history.length} 天`;
 
-  tbody.innerHTML = history.map(d => {
-    const wc = d.wins > d.losses ? 'green' : d.wins < d.losses ? 'red' : 'blue';
-    const uc = (d.total_usd && !d.total_usd.startsWith('-')) ? 'green' : 'red';
-    const ap = (d.avg_pnl && !d.avg_pnl.startsWith('-')) ? 'green' : 'red';
-    return `<tr class="hist-row">
-      <td class="hist-date">${escHtml(d.date)}</td>
-      <td class="${wc}">${d.wins}W / ${d.losses}L</td>
-      <td class="${wc}">${d.win_rate}%</td>
-      <td class="${ap}">${escHtml(d.avg_pnl)}</td>
-      <td class="${uc}">${escHtml(d.total_usd || '–')}</td>
-      <td>${d.best  ? `<span class="hist-green">${escHtml(d.best.symbol)} ${escHtml(d.best.pnl)}</span>`  : '<span class="muted2">–</span>'}</td>
-      <td>${d.worst ? `<span class="hist-red">${escHtml(d.worst.symbol)} ${escHtml(d.worst.pnl)}</span>` : '<span class="muted2">–</span>'}</td>
-    </tr>`;
+  // Scale bars by max absolute P&L
+  const maxAbs = Math.max(...history.map(d => Math.abs(parsePnlUsd(d.total_usd) || 0)), 1);
+
+  const rows = history.map(d => {
+    const usd     = parsePnlUsd(d.total_usd);
+    const isPos   = usd >= 0;
+    const barPct  = Math.min(100, Math.abs(usd) / maxAbs * 100);
+    const usdStr  = d.total_usd || (isPos ? `+$${Math.round(usd)}` : `$${Math.round(usd)}`);
+    const wc      = d.wins > d.losses ? 'green' : d.wins < d.losses ? 'red' : 'muted2';
+    const dateShort = (d.date || '').slice(5); // "03-05"
+
+    const detail = (d.detail || []).map(p => {
+      const pv  = p.pnl_value != null ? p.pnl_value : parseFloat(p.pnl_pct);
+      const cls = pv > 0 ? 'green' : 'red';
+      const sym = p.symbol.replace(/USD$/, '').replace('=X', '');
+      return `<span class="${cls}">${sym}&nbsp;${escHtml(p.pnl_pct)}</span>`;
+    }).join('<span class="muted2"> · </span>');
+
+    return `<div class="hist-day-row">
+      <span class="hist-day-date">${escHtml(dateShort)}</span>
+      <div class="hist-day-bars">
+        <div class="hist-bar-left">
+          <div class="hist-neg-bar" style="width:${isPos ? 0 : barPct.toFixed(1)}%"></div>
+        </div>
+        <div class="hist-center-line"></div>
+        <div class="hist-bar-right">
+          <div class="hist-pos-bar" style="width:${isPos ? barPct.toFixed(1) : 0}%"></div>
+        </div>
+      </div>
+      <span class="hist-day-usd ${isPos ? 'green' : 'red'}">${escHtml(usdStr)}</span>
+      <span class="hist-day-wl ${wc}">${d.wins}W/${d.losses}L</span>
+      <span class="hist-day-detail">${detail || '<span class="muted2">–</span>'}</span>
+    </div>`;
   }).join('');
+
+  scrollEl.innerHTML = `<div class="hist-day-list">${rows}</div>`;
 }
 
 // ── XAUUSD Focus ──────────────────────────────────────────────────────────────
@@ -769,24 +737,6 @@ function renderXauHero(data, livePnl) {
     pnlHtml = `<span class="xau-pnl neutral">–</span>`;
   }
 
-  const names = { daily_ema:'EMA20', weekly_mom:'MOM', gap:'GAP', rsi:'RSI', hourly:'HR', ema50:'EMA50' };
-  let sigHtml = '';
-  if (sig && sig.signals) {
-    sigHtml = Object.entries(sig.signals).map(([k, icon]) => {
-      const cls = icon === '▲' ? 'sig-up' : icon === '▼' ? 'sig-dn' : 'sig-flat';
-      return `<span class="xau-sig ${cls}">${icon} ${names[k]||k}</span>`;
-    }).join('');
-  }
-
-  const sessionChips = (data.signals || []).map(s => {
-    const sc = s.direction === 'LONG' ? 'long' : 'short';
-    return `<div class="xau-sess-chip ${sc}">
-      <span class="chip-sess">${escHtml(s.session||'–')}</span>
-      <span class="chip-dir fw">${escHtml(s.direction)}</span>
-      <span class="chip-conf muted2">${escHtml(s.confidence_pct||'–')}</span>
-    </div>`;
-  }).join('');
-
   hero.innerHTML = `
     <div class="xau-hero-inner ${dirClass}">
       <div class="xau-hero-left">
@@ -796,9 +746,6 @@ function renderXauHero(data, livePnl) {
       </div>
       <div class="xau-hero-mid">
         <div class="xau-dir-badge ${dirClass}">${dirLabel}</div>
-        <div class="xau-conf">${sig ? escHtml(sig.confidence_pct||'–') : '–'} confidence</div>
-        <div class="xau-sigs">${sigHtml || '<span class="muted2">–</span>'}</div>
-        <div class="xau-session-chips">${sessionChips}</div>
       </div>
       <div class="xau-hero-right">
         <div class="xau-levels">
@@ -829,7 +776,9 @@ function renderXauLog(log) {
   const sub  = document.getElementById('xau-log-sub');
   if (!body || !wrap) return;
   if (!log || !log.length) { wrap.style.display = 'none'; return; }
-  wrap.style.display = 'block';
+  // Only show log when XAUUSD is the selected card
+  const selSym2 = _strategies[_selectedIdx] ? _strategies[_selectedIdx].symbol : 'XAUUSD';
+  wrap.style.display = selSym2 === 'XAUUSD' ? 'block' : 'none';
 
   const done   = log.filter(d => d.status && d.status !== 'open').length;
   const wins   = log.filter(d => d.status === 'hit_tp').length;
@@ -888,6 +837,6 @@ document.addEventListener('DOMContentLoaded', () => {
   fetchXauusd();
   fetchStrategies(false);
   fetchHistory();
-  setInterval(() => { fetchPnl(); fetchSummary(); fetchXauusd(); }, 5 * 60 * 1000);
+  setInterval(() => { fetchPnl(); fetchXauusd(); }, 5 * 60 * 1000);
   setInterval(fetchHistory, 15 * 60 * 1000);
 });
