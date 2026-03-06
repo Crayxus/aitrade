@@ -654,40 +654,81 @@ async function fetchHistory() {
     const res = await fetch('/api/history');
     if (!res.ok) return;
     const data = await res.json();
-    if (!data.history || !data.history.length) return;
-    const panel = document.getElementById('history-panel');
-    if (!panel) return;
+    const history = data.history || [];
 
-    const rows = data.history.map(d => {
-      const wc = d.wins > d.losses ? 'green' : d.wins < d.losses ? 'red' : 'blue';
-      const uc = (d.total_usd && !d.total_usd.startsWith('-')) ? 'green' : 'red';
-      const ap = (d.avg_pnl && !d.avg_pnl.startsWith('-')) ? 'green' : 'red';
-      return `<tr class="hist-row">
-        <td class="hist-date">${escHtml(d.date)}</td>
-        <td class="${wc}">${d.wins}W / ${d.losses}L</td>
-        <td class="${wc}">${d.win_rate}%</td>
-        <td class="${ap}">${escHtml(d.avg_pnl)}</td>
-        <td class="${uc}">${escHtml(d.total_usd || '–')}</td>
-        <td>${d.best ? `<span class="hist-green">${escHtml(d.best.symbol)} ${escHtml(d.best.pnl)}</span>` : '–'}</td>
-        <td>${d.worst ? `<span class="hist-red">${escHtml(d.worst.symbol)} ${escHtml(d.worst.pnl)}</span>` : '–'}</td>
-      </tr>`;
-    }).join('');
-
-    panel.style.display = 'block';
-    panel.innerHTML = `
-      <div class="hist-header">
-        <span class="hist-title">TRADING HISTORY</span>
-        <span class="hist-sub">近30天记录</span>
-      </div>
-      <div class="hist-scroll">
-        <table class="hist-table">
-          <thead><tr>
-            <th>DATE</th><th>W/L</th><th>WIN RATE</th><th>AVG P&L</th><th>TOTAL USD</th><th>BEST</th><th>WORST</th>
-          </tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>`;
+    updateYesterdayBar(history);
+    renderHistoryTable(history);
   } catch {}
+}
+
+function updateYesterdayBar(history) {
+  const segsEl  = document.getElementById('yesterday-segs');
+  const statsEl = document.getElementById('yesterday-stats');
+  if (!segsEl || !statsEl) return;
+
+  const yesterday = history[0]; // newest first
+  if (!yesterday) {
+    segsEl.innerHTML = `<div class="perf-seg neutral" style="flex:3">
+      <span class="perf-sym" style="color:var(--muted)">N/A</span></div>`;
+    statsEl.innerHTML = '<span class="muted2">N/A</span>';
+    return;
+  }
+
+  const detail = yesterday.detail || [];
+  if (detail.length) {
+    segsEl.innerHTML = detail.map(p => {
+      const cls = p.status === 'hit_tp'    ? 'win'
+                : p.status === 'hit_sl'    ? 'loss'
+                : p.status === 'time_exit' ? 'exit'
+                : p.pnl_value > 0          ? 'win' : 'loss';
+      const sym = escHtml(p.symbol).replace('USD','').replace('=X','');
+      return `<div class="perf-seg ${cls}" title="${escHtml(p.symbol)} ${escHtml(p.pnl_pct)} ${escHtml(p.pnl_usd||'')}">
+        <span class="perf-sym">${sym}</span>
+        <span class="perf-pct">${escHtml(p.pnl_pct)}</span>
+      </div>`;
+    }).join('');
+  } else {
+    segsEl.innerHTML = `<div class="perf-seg neutral" style="flex:3">
+      <span class="perf-sym" style="color:var(--muted)">${escHtml(yesterday.date)}</span></div>`;
+  }
+
+  const wc = yesterday.wins > yesterday.losses ? 'green'
+           : yesterday.wins < yesterday.losses ? 'red' : 'muted2';
+  const uc = yesterday.total_usd && !yesterday.total_usd.startsWith('-') ? 'green' : 'red';
+  statsEl.innerHTML =
+    `<span class="${wc} fw">${yesterday.wins}W ${yesterday.losses}L</span>` +
+    `&nbsp;<span class="muted2">${yesterday.win_rate}%</span>` +
+    (yesterday.total_usd ? `&nbsp;<span class="${uc}" style="font-size:11px">${escHtml(yesterday.total_usd)}</span>` : '');
+}
+
+function renderHistoryTable(history) {
+  const tbody  = document.getElementById('hist-body');
+  const subEl  = document.getElementById('hist-sub');
+  if (!tbody) return;
+
+  if (!history.length) {
+    tbody.innerHTML = `<tr class="hist-row"><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">
+      暂无记录 — 今天交易完成后自动保存</td></tr>`;
+    if (subEl) subEl.textContent = '近30天记录';
+    return;
+  }
+
+  if (subEl) subEl.textContent = `近30天记录 · 共 ${history.length} 天`;
+
+  tbody.innerHTML = history.map(d => {
+    const wc = d.wins > d.losses ? 'green' : d.wins < d.losses ? 'red' : 'blue';
+    const uc = (d.total_usd && !d.total_usd.startsWith('-')) ? 'green' : 'red';
+    const ap = (d.avg_pnl && !d.avg_pnl.startsWith('-')) ? 'green' : 'red';
+    return `<tr class="hist-row">
+      <td class="hist-date">${escHtml(d.date)}</td>
+      <td class="${wc}">${d.wins}W / ${d.losses}L</td>
+      <td class="${wc}">${d.win_rate}%</td>
+      <td class="${ap}">${escHtml(d.avg_pnl)}</td>
+      <td class="${uc}">${escHtml(d.total_usd || '–')}</td>
+      <td>${d.best  ? `<span class="hist-green">${escHtml(d.best.symbol)} ${escHtml(d.best.pnl)}</span>`  : '<span class="muted2">–</span>'}</td>
+      <td>${d.worst ? `<span class="hist-red">${escHtml(d.worst.symbol)} ${escHtml(d.worst.pnl)}</span>` : '<span class="muted2">–</span>'}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ── XAUUSD Focus ──────────────────────────────────────────────────────────────

@@ -82,6 +82,17 @@
   <span class="perf-stats" id="perf-stats"><span class="muted2">– – –</span></span>
 </div>
 
+<!-- Yesterday's Results Bar -->
+<div id="yesterday-bar">
+  <span class="perf-label">YESTERDAY</span>
+  <div class="perf-segs" id="yesterday-segs">
+    <div class="perf-seg neutral"></div>
+    <div class="perf-seg neutral"></div>
+    <div class="perf-seg neutral"></div>
+  </div>
+  <span class="perf-stats" id="yesterday-stats"><span class="muted2">N/A</span></span>
+</div>
+
 <!-- Loading -->
 <div id="loading-overlay">
   <div class="spinner"></div>
@@ -122,7 +133,22 @@
   <div id="summary-panel" style="display:none"></div>
 
   <!-- Trading History Panel -->
-  <div id="history-panel" style="display:none"></div>
+  <div id="history-panel">
+    <div class="hist-header">
+      <span class="hist-title">TRADING HISTORY</span>
+      <span class="hist-sub" id="hist-sub">近30天记录</span>
+    </div>
+    <div class="hist-scroll">
+      <table class="hist-table">
+        <thead><tr>
+          <th>DATE</th><th>W/L</th><th>WIN RATE</th><th>AVG P&L</th><th>TOTAL USD</th><th>BEST</th><th>WORST</th>
+        </tr></thead>
+        <tbody id="hist-body">
+          <tr class="hist-row"><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">暂无记录 — 今天交易完成后自动保存</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
 </main>
 
 <footer>
