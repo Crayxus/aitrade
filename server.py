@@ -590,10 +590,13 @@ def _upsert_xau_today(strategies, session_label):
     print(f"[XAU LOG] {date_str} {session_label}: {xau['direction']} entry={xau['entry_mid']}")
 
 def _finalise_xau_today():
-    """Snapshot XAUUSD P&L at 03:30 BJ (called by scheduler)."""
+    """Snapshot XAUUSD P&L at 03:30 BJ (called by scheduler).
+    Trade is entered the previous calendar day → look at yesterday's log entry."""
     global _xau_log
     bj = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
-    date_str = bj.strftime('%Y-%m-%d')
+    # Trade entry date is the previous day (exit at 03:00 BJ is next calendar day)
+    yesterday = (bj - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+    date_str = yesterday
 
     if date_str not in _xau_log:
         return
@@ -629,6 +632,74 @@ def _finalise_xau_today():
         print(f"[XAU LOG] finalised {date_str}: {status} pnl={sign}{pnl_pct:.2f}%")
     except Exception as e:
         print(f"[XAU LOG] finalise error: {e}")
+
+# ── Startup: finalize any past open xau entries ───────────────────────────────
+def _startup_finalize_open_entries():
+    """On startup, resolve xau_log entries from previous days still showing 'open'."""
+    global _xau_log
+    bj_today = (datetime.datetime.utcnow() + datetime.timedelta(hours=8)).strftime('%Y-%m-%d')
+    open_past = {d: e for d, e in _xau_log.items()
+                 if d < bj_today and e.get("status") not in ("hit_tp", "hit_sl", "time_exit")}
+    if not open_past:
+        return
+    print(f"[STARTUP] Finalizing {len(open_past)} unresolved past xau entries: {list(open_past.keys())}")
+    try:
+        df = None
+        for sym in ["GC=F", "XAUUSD=X"]:
+            try:
+                t = yf.Ticker(sym)
+                df = t.history(period="30d", interval="1d").dropna()
+                df.columns = [c.capitalize() for c in df.columns]
+                if len(df) > 0:
+                    break
+            except Exception:
+                continue
+        if df is None or len(df) == 0:
+            return
+        if df.index.tz:
+            df.index = df.index.tz_convert(None)
+        for date_str, entry in open_past.items():
+            try:
+                direction = entry.get("direction")
+                entry_mid = float(entry.get("entry", 0))
+                sl = float(entry.get("sl", 0))
+                tp = float(entry.get("tp", 0))
+                if not entry_mid or not direction:
+                    continue
+                target = pd.Timestamp(date_str)
+                day_rows = df[df.index.normalize() == target]
+                if len(day_rows) == 0:
+                    print(f"[STARTUP] No bar for {date_str}, skipping")
+                    continue
+                day_high  = float(day_rows["High"].max())
+                day_low   = float(day_rows["Low"].min())
+                day_close = float(day_rows["Close"].iloc[-1])
+                if direction == "LONG":
+                    if day_high >= tp:   status, close_px = "hit_tp",   tp
+                    elif day_low <= sl:  status, close_px = "hit_sl",   sl
+                    else:               status, close_px = "time_exit", day_close
+                    pnl_pct = (close_px - entry_mid) / entry_mid * 100
+                else:
+                    if day_low <= tp:    status, close_px = "hit_tp",   tp
+                    elif day_high >= sl: status, close_px = "hit_sl",   sl
+                    else:               status, close_px = "time_exit", day_close
+                    pnl_pct = (entry_mid - close_px) / entry_mid * 100
+                pnl_usd = round(pnl_pct / 100 * entry_mid * 100 * 0.1)
+                sign = "+" if pnl_pct >= 0 else ""
+                _xau_log[date_str].update({
+                    "status":   status,
+                    "close_px": fmt_price(close_px, close_px),
+                    "pnl_pct":  f"{sign}{pnl_pct:.2f}%",
+                    "pnl_usd":  f"{'+' if pnl_usd >= 0 else ''}${pnl_usd}",
+                })
+                save_xau_log(_xau_log)
+                print(f"[STARTUP] Finalized {date_str}: {direction} {status} pnl={sign}{pnl_pct:.2f}%")
+            except Exception as e:
+                print(f"[STARTUP] Could not finalize {date_str}: {e}")
+    except Exception as e:
+        print(f"[STARTUP] Data fetch error: {e}")
+
+threading.Thread(target=_startup_finalize_open_entries, daemon=True).start()
 
 # ── Background Scheduler ──────────────────────────────────────────────────────
 def _scheduler():
@@ -675,6 +746,18 @@ def _scheduler():
             if bj.hour == 3 and bj.minute == 30 and k_snap not in triggered:
                 print(f"[AUTO] Finalising {ds} at 03:30")
                 _finalise_xau_today()
+                # Also snapshot all-symbol history if cache exists
+                prev_ds = (bj - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+                if prev_ds in _cache and prev_ds not in _history:
+                    try:
+                        prices = fetch_current_prices()
+                        pnl_list = [calc_pnl(s, prices.get(s["symbol"])) for s in _cache[prev_ds]]
+                        pnl_list = [p for p in pnl_list if p]
+                        if pnl_list:
+                            snapshot_day(prev_ds, pnl_list)
+                            print(f"[AUTO] Snapshot saved for {prev_ds}: {len(pnl_list)} positions")
+                    except Exception as e:
+                        print(f"[AUTO] snapshot error: {e}")
                 triggered.add(k_snap)
 
         except Exception as e:
