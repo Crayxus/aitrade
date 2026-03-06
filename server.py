@@ -729,36 +729,31 @@ def _startup_finalize_open_entries():
 threading.Thread(target=_startup_finalize_open_entries, daemon=True).start()
 
 def _startup_finalize_history():
-    """On restart, reconstruct history for yesterday if it's missing from _history."""
+    """On restart, reconstruct history for all past days missing from _history."""
     global _history
-    bj = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
-    yesterday = (bj - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-    if yesterday in _history:
-        return
     try:
         if not STRATEGY_CACHE_FILE.exists():
-            print(f"[STARTUP] No strategy cache file — cannot reconstruct {yesterday}")
+            print("[STARTUP] No strategy cache file — skipping history reconstruction")
             return
         all_caches = json.loads(STRATEGY_CACHE_FILE.read_text(encoding="utf-8"))
-        strats = all_caches.get(yesterday)
-        if not strats:
-            print(f"[STARTUP] No strategy cache for {yesterday}")
-            return
     except Exception as e:
         print(f"[STARTUP] Could not load strategy cache: {e}")
         return
 
-    print(f"[STARTUP] Reconstructing history for {yesterday} ({len(strats)} strategies)")
+    bj_today = (datetime.datetime.utcnow() + datetime.timedelta(hours=8)).strftime("%Y-%m-%d")
+    missing = sorted([d for d in all_caches if d < bj_today and d not in _history])
+    if not missing:
+        return
 
-    # Fetch historical OHLC for each unique ticker
+    print(f"[STARTUP] Reconstructing history for {len(missing)} missing day(s): {missing}")
+
+    # Pre-fetch OHLC for all unique tickers (covers all missing days in one pass)
+    all_tickers = {s.get("ticker") for d in missing for s in all_caches.get(d, []) if s.get("ticker")}
     ticker_frames = {}
-    for s in strats:
-        t = s.get("ticker")
-        if not t or t in ticker_frames:
-            continue
+    for t in all_tickers:
         for sym in [t] + TICKER_FALLBACKS.get(t, []):
             try:
-                df = yf.Ticker(sym).history(period="5d", interval="1d").dropna()
+                df = yf.Ticker(sym).history(period="30d", interval="1d").dropna()
                 df.columns = [c.capitalize() for c in df.columns]
                 if len(df) > 0:
                     if df.index.tz:
@@ -768,60 +763,66 @@ def _startup_finalize_history():
             except Exception:
                 continue
 
-    pnl_list = []
-    for s in strats:
-        try:
-            symbol    = s["symbol"]
-            direction = s["direction"]
-            entry_mid = float(s["entry_mid"])
-            sl        = float(s["stop_loss"])
-            tp        = float(s["take_profit"])
-            lots      = float(s.get("recommended_lots", 0.1))
-            ticker    = s.get("ticker")
+    for yesterday in missing:
+        strats = all_caches.get(yesterday)
+        if not strats:
+            continue
 
-            df = ticker_frames.get(ticker)
-            if df is None:
-                print(f"[STARTUP] No price data for {symbol} ticker={ticker}")
-                continue
+        print(f"[STARTUP] Processing {yesterday} ({len(strats)} strategies)")
+        pnl_list = []
+        for s in strats:
+            try:
+                symbol    = s["symbol"]
+                direction = s["direction"]
+                entry_mid = float(s["entry_mid"])
+                sl        = float(s["stop_loss"])
+                tp        = float(s["take_profit"])
+                lots      = float(s.get("recommended_lots", 0.1))
+                ticker    = s.get("ticker")
 
-            target   = pd.Timestamp(yesterday)
-            day_rows = df[df.index.normalize() == target]
-            if len(day_rows) == 0:
-                print(f"[STARTUP] No bar for {yesterday} ({symbol}), skipping")
-                continue
+                df = ticker_frames.get(ticker)
+                if df is None:
+                    print(f"[STARTUP] No price data for {symbol} ticker={ticker}")
+                    continue
 
-            day_high  = float(day_rows["High"].max())
-            day_low   = float(day_rows["Low"].min())
-            day_close = float(day_rows["Close"].iloc[-1])
+                target   = pd.Timestamp(yesterday)
+                day_rows = df[df.index.normalize() == target]
+                if len(day_rows) == 0:
+                    print(f"[STARTUP] No bar for {yesterday} ({symbol}), skipping")
+                    continue
 
-            if direction == "LONG":
-                if day_high >= tp:   status, close_px = "hit_tp",   tp
-                elif day_low <= sl:  status, close_px = "hit_sl",   sl
-                else:               status, close_px = "time_exit", day_close
-                pnl_pct = (close_px - entry_mid) / entry_mid * 100
-            else:
-                if day_low <= tp:    status, close_px = "hit_tp",   tp
-                elif day_high >= sl: status, close_px = "hit_sl",   sl
-                else:               status, close_px = "time_exit", day_close
-                pnl_pct = (entry_mid - close_px) / entry_mid * 100
+                day_high  = float(day_rows["High"].max())
+                day_low   = float(day_rows["Low"].min())
+                day_close = float(day_rows["Close"].iloc[-1])
 
-            lv      = LOT_VALUES.get(symbol, 1)
-            pnl_usd = round(pnl_pct / 100 * entry_mid * lv * lots)
-            sign    = "+" if pnl_pct >= 0 else ""
-            pnl_list.append({
-                "symbol":    symbol,
-                "pnl_pct":   f"{sign}{pnl_pct:.2f}%",
-                "pnl_usd":   f"{'+' if pnl_usd >= 0 else ''}${pnl_usd}",
-                "pnl_value": pnl_pct,
-                "status":    status,
-            })
-            print(f"[STARTUP] History {yesterday} {symbol}: {direction} {status} pnl={sign}{pnl_pct:.2f}%")
-        except Exception as e:
-            print(f"[STARTUP] History error for {s.get('symbol')}: {e}")
+                if direction == "LONG":
+                    if day_high >= tp:   status, close_px = "hit_tp",   tp
+                    elif day_low <= sl:  status, close_px = "hit_sl",   sl
+                    else:               status, close_px = "time_exit", day_close
+                    pnl_pct = (close_px - entry_mid) / entry_mid * 100
+                else:
+                    if day_low <= tp:    status, close_px = "hit_tp",   tp
+                    elif day_high >= sl: status, close_px = "hit_sl",   sl
+                    else:               status, close_px = "time_exit", day_close
+                    pnl_pct = (entry_mid - close_px) / entry_mid * 100
 
-    if pnl_list:
-        snapshot_day(yesterday, pnl_list)
-        print(f"[STARTUP] History saved for {yesterday}: {len(pnl_list)} positions")
+                lv      = LOT_VALUES.get(symbol, 1)
+                pnl_usd = round(pnl_pct / 100 * entry_mid * lv * lots)
+                sign    = "+" if pnl_pct >= 0 else ""
+                pnl_list.append({
+                    "symbol":    symbol,
+                    "pnl_pct":   f"{sign}{pnl_pct:.2f}%",
+                    "pnl_usd":   f"{'+' if pnl_usd >= 0 else ''}${pnl_usd}",
+                    "pnl_value": pnl_pct,
+                    "status":    status,
+                })
+                print(f"[STARTUP] History {yesterday} {symbol}: {direction} {status} pnl={sign}{pnl_pct:.2f}%")
+            except Exception as e:
+                print(f"[STARTUP] History error for {s.get('symbol')}: {e}")
+
+        if pnl_list:
+            snapshot_day(yesterday, pnl_list)
+            print(f"[STARTUP] History saved for {yesterday}: {len(pnl_list)} positions")
 
 threading.Thread(target=_startup_finalize_history, daemon=True).start()
 
