@@ -12,8 +12,6 @@ from flask import Flask, jsonify, send_from_directory, request
 app = Flask(__name__, static_folder='.')
 _cache          = {}   # {date_str: strategies_list}
 _pnl_snap       = {}   # {date_str: final_pnl}  in-memory only
-_today_pnl_range = {}  # {date_str: {"high": float, "low": float}}  in-memory only
-
 # ── Persistent history ────────────────────────────────────────────────────────
 HISTORY_FILE = Path(__file__).parent / "data" / "history.json"
 
@@ -35,6 +33,26 @@ def save_history(history):
 
 _history = load_history()   # {date_str: {wins, losses, avg_pnl, detail, ...}}
 
+# ── Intraday P&L Range (persistent) ──────────────────────────────────────────
+PNL_RANGE_FILE = Path(__file__).parent / "data" / "pnl_range.json"
+
+def _load_pnl_range():
+    try:
+        PNL_RANGE_FILE.parent.mkdir(exist_ok=True)
+        if PNL_RANGE_FILE.exists():
+            return json.loads(PNL_RANGE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+def _save_pnl_range():
+    try:
+        PNL_RANGE_FILE.write_text(json.dumps(_today_pnl_range, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"[WARN] _save_pnl_range: {e}")
+
+_today_pnl_range = _load_pnl_range()  # {date_str: {"high": float, "low": float}}
+
 def _parse_pnl_usd(s):
     """Parse '+$200' or '$-150' → float."""
     try:
@@ -43,13 +61,19 @@ def _parse_pnl_usd(s):
         return 0.0
 
 def _update_pnl_range(date_str, total_pnl):
-    """Track intraday high/low of combined portfolio P&L."""
+    """Track intraday high/low of combined portfolio P&L, persisted to disk."""
+    # Purge entries older than 2 days to avoid unbounded growth
+    bj_today = (datetime.datetime.utcnow() + datetime.timedelta(hours=8)).strftime("%Y-%m-%d")
+    for old in [d for d in list(_today_pnl_range) if d < bj_today]:
+        del _today_pnl_range[old]
+
     if date_str not in _today_pnl_range:
         _today_pnl_range[date_str] = {"high": total_pnl, "low": total_pnl}
     else:
         r = _today_pnl_range[date_str]
         if total_pnl > r["high"]: r["high"] = total_pnl
         if total_pnl < r["low"]:  r["low"]  = total_pnl
+    _save_pnl_range()
 
 # ── 6 Instruments ────────────────────────────────────────────────────────────
 UNIFIED_EXIT = "03:00"
