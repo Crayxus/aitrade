@@ -295,6 +295,56 @@ function updatePortfolioPnl() {
   updatePerfBar();
 }
 
+// ── Today's Actual P&L Range (tracked intraday high/low) ──
+function updateTodayRange(range) {
+  const el = document.getElementById('today-range');
+  if (!el) return;
+  if (!range || range.high == null || range.low == null) { el.style.display = 'none'; return; }
+
+  const high    = Math.round(range.high);
+  const low     = Math.round(range.low);
+  const current = Math.round(range.current);
+  const span    = Math.max(high - low, 1);
+
+  // Zero line position: where P&L == 0 on the bar
+  const hasNeg  = low < 0;
+  const zeroPct = hasNeg ? Math.max(0, Math.min(100, (-low / span * 100))) : 0;
+  const nowPct  = Math.max(0, Math.min(100, ((current - low) / span * 100)));
+
+  const fmt = (v) => { const s = v >= 0 ? '+' : ''; return `${s}$${Math.abs(v)}`; };
+  const curCls  = current > 0 ? 'green' : current < 0 ? 'red' : 'muted2';
+  const highCls = high    > 0 ? 'green' : high    < 0 ? 'red' : 'muted2';
+  const lowCls  = low     < 0 ? 'red'   : 'green';
+
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div class="trange-wrap">
+      <div class="trange-top">
+        <span class="trange-title">TODAY'S RANGE · 今日实际盈亏区间</span>
+        <span class="trange-vals">
+          <span class="trange-item ${lowCls}">低点&nbsp;<b>${fmt(low)}</b></span>
+          <span class="trange-sep">|</span>
+          <span class="trange-item ${curCls}">当前&nbsp;<b>${fmt(current)}</b></span>
+          <span class="trange-sep">|</span>
+          <span class="trange-item ${highCls}">高点&nbsp;<b>${fmt(high)}</b></span>
+        </span>
+      </div>
+      <div class="trange-bar">
+        ${hasNeg ? `<div class="trange-neg" style="width:${zeroPct.toFixed(1)}%"></div>` : ''}
+        <div class="trange-pos" style="width:${(100 - zeroPct).toFixed(1)}%"></div>
+        ${hasNeg ? `<div class="trange-zero" style="left:${zeroPct.toFixed(1)}%"></div>` : ''}
+        <div class="trange-marker" style="left:${nowPct.toFixed(1)}%" title="${fmt(current)} 当前">
+          <div class="trange-dot"></div>
+        </div>
+      </div>
+      <div class="trange-axis">
+        <span class="${lowCls}">${fmt(low)}</span>
+        ${hasNeg ? `<span class="trange-zero-lbl" style="left:${zeroPct.toFixed(1)}%">±0</span>` : ''}
+        <span class="${highCls}">${fmt(high)}</span>
+      </div>
+    </div>`;
+}
+
 function updatePerfBar() {
   if (!_pnlData.length) return;
   const total   = _pnlData.length;
@@ -525,6 +575,7 @@ async function fetchPnl() {
     data.pnl.forEach(p => { pnlMap[p.symbol] = p; });
     _pnlData = data.pnl;
     updatePortfolioPnl();
+    if (data.pnl_range) updateTodayRange(data.pnl_range);
 
     renderAll(_strategies, pnlMap);
     buildTicker(_strategies);
@@ -685,6 +736,17 @@ function renderHistoryTable(history) {
       return `<span class="${cls}">${sym}&nbsp;${escHtml(p.pnl_pct)}</span>`;
     }).join('<span class="muted2"> · </span>');
 
+    // Gross win / gross loss for the day
+    const grossWin  = (d.detail || []).reduce((s, p) => { const v = parsePnlUsd(p.pnl_usd); return s + (v > 0 ? v : 0); }, 0);
+    const grossLoss = (d.detail || []).reduce((s, p) => { const v = parsePnlUsd(p.pnl_usd); return s + (v < 0 ? v : 0); }, 0);
+    const rangeHtml = (grossWin > 0 || grossLoss < 0)
+      ? `<span class="hist-day-range">` +
+        (grossLoss < 0 ? `<span class="red">-$${Math.round(Math.abs(grossLoss))}</span>` : '') +
+        (grossLoss < 0 && grossWin > 0 ? `<span class="muted2">~</span>` : '') +
+        (grossWin  > 0 ? `<span class="green">+$${Math.round(grossWin)}</span>` : '') +
+        `</span>`
+      : '<span class="hist-day-range muted2">–</span>';
+
     return `<div class="hist-day-row">
       <span class="hist-day-date">${escHtml(dateShort)}</span>
       <div class="hist-day-bars">
@@ -698,6 +760,7 @@ function renderHistoryTable(history) {
       </div>
       <span class="hist-day-usd ${isPos ? 'green' : 'red'}">${escHtml(usdStr)}</span>
       <span class="hist-day-wl ${wc}">${d.wins}W/${d.losses}L</span>
+      ${rangeHtml}
       <span class="hist-day-detail">${detail || '<span class="muted2">–</span>'}</span>
     </div>`;
   }).join('');

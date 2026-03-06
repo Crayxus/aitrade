@@ -10,8 +10,9 @@ from pathlib import Path
 from flask import Flask, jsonify, send_from_directory, request
 
 app = Flask(__name__, static_folder='.')
-_cache    = {}   # {date_str: strategies_list}
-_pnl_snap = {}   # {date_str: final_pnl}  in-memory only
+_cache          = {}   # {date_str: strategies_list}
+_pnl_snap       = {}   # {date_str: final_pnl}  in-memory only
+_today_pnl_range = {}  # {date_str: {"high": float, "low": float}}  in-memory only
 
 # ── Persistent history ────────────────────────────────────────────────────────
 HISTORY_FILE = Path(__file__).parent / "data" / "history.json"
@@ -33,6 +34,22 @@ def save_history(history):
         print(f"[WARN] save_history: {e}")
 
 _history = load_history()   # {date_str: {wins, losses, avg_pnl, detail, ...}}
+
+def _parse_pnl_usd(s):
+    """Parse '+$200' or '$-150' → float."""
+    try:
+        return float(str(s).replace('$', '').replace('+', '').strip())
+    except Exception:
+        return 0.0
+
+def _update_pnl_range(date_str, total_pnl):
+    """Track intraday high/low of combined portfolio P&L."""
+    if date_str not in _today_pnl_range:
+        _today_pnl_range[date_str] = {"high": total_pnl, "low": total_pnl}
+    else:
+        r = _today_pnl_range[date_str]
+        if total_pnl > r["high"]: r["high"] = total_pnl
+        if total_pnl < r["low"]:  r["low"]  = total_pnl
 
 # ── 6 Instruments ────────────────────────────────────────────────────────────
 UNIFIED_EXIT = "03:00"
@@ -924,7 +941,21 @@ def pnl():
         if is_past_exit(UNIFIED_EXIT) and date_str not in _history:
             snapshot_day(date_str, results)
 
-        return jsonify({"pnl": results, "updated_at": bj.strftime('%H:%M:%S')})
+        # Track intraday P&L high/low
+        active_pnl = sum(_parse_pnl_usd(r.get("pnl_usd", "0"))
+                         for r in results if r.get("status") != "pending")
+        _update_pnl_range(date_str, active_pnl)
+        rng = _today_pnl_range.get(date_str, {})
+
+        return jsonify({
+            "pnl":        results,
+            "updated_at": bj.strftime('%H:%M:%S'),
+            "pnl_range":  {
+                "high":    rng.get("high"),
+                "low":     rng.get("low"),
+                "current": active_pnl,
+            },
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

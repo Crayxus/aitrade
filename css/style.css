@@ -883,6 +883,121 @@ main { padding: 24px 28px; max-width: 1440px; margin: 0 auto; }
   text-overflow: ellipsis;
 }
 
+/* History row: per-day gross range chip */
+.hist-day-range {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  min-width: 80px;
+  flex-shrink: 0;
+}
+
+/* Today's Range bar (at top of history panel) */
+#today-range {
+  padding: 10px 20px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.trange-wrap {}
+
+.trange-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.trange-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.trange-vals {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.trange-item { white-space: nowrap; }
+.trange-item.green { color: var(--green); }
+.trange-item.red   { color: var(--red); }
+.trange-item.muted2 { color: var(--muted2); }
+.trange-sep { color: var(--muted); }
+
+.trange-bar {
+  position: relative;
+  height: 7px;
+  border-radius: 4px;
+  overflow: visible;
+  display: flex;
+  margin-bottom: 5px;
+}
+
+.trange-neg {
+  background: rgba(255,77,106,.40);
+  height: 100%;
+  border-radius: 4px 0 0 4px;
+}
+
+.trange-pos {
+  background: rgba(0,217,126,.30);
+  height: 100%;
+  border-radius: 0 4px 4px 0;
+}
+
+.trange-zero {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 13px;
+  background: var(--muted);
+  transform: translateX(-50%);
+  border-radius: 1px;
+  z-index: 1;
+}
+
+.trange-marker {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+}
+
+.trange-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 6px rgba(255,255,255,.4);
+}
+
+.trange-axis {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  font-family: var(--mono);
+  font-weight: 600;
+}
+
+.trange-zero-lbl {
+  position: absolute;
+  transform: translateX(-50%);
+  color: var(--muted2);
+  font-size: 9px;
+  font-family: var(--mono);
+}
+
 /* Card P&L footer row */
 .card-pnl-foot {
   display: flex;
