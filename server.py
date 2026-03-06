@@ -507,17 +507,20 @@ def snapshot_day(date_str, pnl_list):
         for p in pnl_list
     )
 
+    rng = _today_pnl_range.get(date_str, {})
     record = {
-        "date":      date_str,
-        "wins":      len(wins),
-        "losses":    len(losses),
-        "total":     len(pnl_list),
-        "win_rate":  round(len(wins) / len(pnl_list) * 100) if pnl_list else 0,
-        "avg_pnl":   f"{avg:+.2f}%",
-        "total_usd": f"{'+' if total_usd >= 0 else ''}${total_usd}",
-        "best":      {"symbol": best["symbol"],  "pnl": best["pnl_pct"]}  if best  else None,
-        "worst":     {"symbol": worst["symbol"], "pnl": worst["pnl_pct"]} if worst else None,
-        "detail":    [{k: p[k] for k in ("symbol","pnl_pct","pnl_usd","status")} for p in pnl_list],
+        "date":           date_str,
+        "wins":           len(wins),
+        "losses":         len(losses),
+        "total":          len(pnl_list),
+        "win_rate":       round(len(wins) / len(pnl_list) * 100) if pnl_list else 0,
+        "avg_pnl":        f"{avg:+.2f}%",
+        "total_usd":      f"{'+' if total_usd >= 0 else ''}${total_usd}",
+        "best":           {"symbol": best["symbol"],  "pnl": best["pnl_pct"]}  if best  else None,
+        "worst":          {"symbol": worst["symbol"], "pnl": worst["pnl_pct"]} if worst else None,
+        "detail":         [{k: p[k] for k in ("symbol","pnl_pct","pnl_usd","status")} for p in pnl_list],
+        "pnl_range_high": rng.get("high"),
+        "pnl_range_low":  rng.get("low"),
     }
     _history[date_str] = record
     save_history(_history)

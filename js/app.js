@@ -736,16 +736,31 @@ function renderHistoryTable(history) {
       return `<span class="${cls}">${sym}&nbsp;${escHtml(p.pnl_pct)}</span>`;
     }).join('<span class="muted2"> · </span>');
 
-    // Gross win / gross loss for the day
-    const grossWin  = (d.detail || []).reduce((s, p) => { const v = parsePnlUsd(p.pnl_usd); return s + (v > 0 ? v : 0); }, 0);
-    const grossLoss = (d.detail || []).reduce((s, p) => { const v = parsePnlUsd(p.pnl_usd); return s + (v < 0 ? v : 0); }, 0);
-    const rangeHtml = (grossWin > 0 || grossLoss < 0)
-      ? `<span class="hist-day-range">` +
-        (grossLoss < 0 ? `<span class="red">-$${Math.round(Math.abs(grossLoss))}</span>` : '') +
-        (grossLoss < 0 && grossWin > 0 ? `<span class="muted2">~</span>` : '') +
-        (grossWin  > 0 ? `<span class="green">+$${Math.round(grossWin)}</span>` : '') +
-        `</span>`
-      : '<span class="hist-day-range muted2">–</span>';
+    // Intraday P&L range: use actual tracked high/low if available
+    let rangeHtml;
+    if (d.pnl_range_high != null && d.pnl_range_low != null) {
+      const hi   = Math.round(d.pnl_range_high);
+      const lo   = Math.round(d.pnl_range_low);
+      const fmtR = v => `${v >= 0 ? '+' : ''}$${Math.abs(v)}`;
+      const hCls = hi >= 0 ? 'green' : 'red';
+      const lCls = lo <  0 ? 'red'   : 'green';
+      rangeHtml = `<span class="hist-day-range">` +
+        `<span class="${lCls}">${fmtR(lo)}</span>` +
+        `<span class="muted2">~</span>` +
+        `<span class="${hCls}">${fmtR(hi)}</span>` +
+        `</span>`;
+    } else {
+      // Fallback: gross win/loss from detail when no range data stored
+      const grossWin  = (d.detail || []).reduce((s, p) => { const v = parsePnlUsd(p.pnl_usd); return s + (v > 0 ? v : 0); }, 0);
+      const grossLoss = (d.detail || []).reduce((s, p) => { const v = parsePnlUsd(p.pnl_usd); return s + (v < 0 ? v : 0); }, 0);
+      rangeHtml = (grossWin > 0 || grossLoss < 0)
+        ? `<span class="hist-day-range">` +
+          (grossLoss < 0 ? `<span class="red">-$${Math.round(Math.abs(grossLoss))}</span>` : '') +
+          (grossLoss < 0 && grossWin > 0 ? `<span class="muted2">~</span>` : '') +
+          (grossWin  > 0 ? `<span class="green">+$${Math.round(grossWin)}</span>` : '') +
+          `</span>`
+        : '<span class="hist-day-range muted2">–</span>';
+    }
 
     return `<div class="hist-day-row">
       <span class="hist-day-date">${escHtml(dateShort)}</span>
