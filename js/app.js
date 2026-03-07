@@ -292,91 +292,64 @@ function updatePortfolioPnl() {
     cntEl.className   = 'live-value muted';
   }
 
-  updatePerfBar();
 }
 
 // ── Today's Actual P&L Range (tracked intraday high/low) ──
 function updateTodayRange(range) {
   const el = document.getElementById('today-range');
   if (!el) return;
-  if (!range || range.high == null || range.low == null) { el.style.display = 'none'; return; }
+  if (!range || range.high == null) { el.style.display = 'none'; return; }
+
+  const theoryWin  = _strategies.length ? Math.round(_strategies.reduce((s, st) => s + (st.profit_usd || 0), 0)) : null;
+  const theoryLoss = _strategies.length ? -Math.round(_strategies.reduce((s, st) => s + (st.risk_usd  || 0), 0)) : null;
 
   const high    = Math.round(range.high);
-  const low     = Math.round(range.low);
+  const low     = range.low != null ? Math.round(range.low) : null;
   const current = Math.round(range.current);
-  const span    = Math.max(high - low, 1);
 
-  // Zero line position: where P&L == 0 on the bar
-  const hasNeg  = low < 0;
-  const zeroPct = hasNeg ? Math.max(0, Math.min(100, (-low / span * 100))) : 0;
-  const nowPct  = Math.max(0, Math.min(100, ((current - low) / span * 100)));
+  const barMin = theoryLoss != null ? theoryLoss : (low != null ? low - 20 : current - 100);
+  const barMax = theoryWin  != null ? theoryWin  : high + 20;
+  const span   = Math.max(barMax - barMin, 1);
+  const pct    = v => Math.max(0, Math.min(100, ((v - barMin) / span * 100)));
 
-  const fmt = (v) => { const s = v >= 0 ? '+' : ''; return `${s}$${Math.abs(v)}`; };
-  const curCls  = current > 0 ? 'green' : current < 0 ? 'red' : 'muted2';
-  const highCls = high    > 0 ? 'green' : high    < 0 ? 'red' : 'muted2';
-  const lowCls  = low     < 0 ? 'red'   : 'green';
+  const zeroPct    = pct(0);
+  const highPct    = pct(high);
+  const lowPct     = low != null ? pct(low) : null;
+  const currentPct = pct(current);
+  const zoneL      = lowPct != null ? Math.min(lowPct, highPct) : highPct;
+  const zoneW      = lowPct != null ? Math.abs(highPct - lowPct) : 0;
+
+  const fmt = v => `${v >= 0 ? '+' : ''}$${Math.abs(v)}`;
+  const cls = v => v > 0 ? 'green' : v < 0 ? 'red' : 'muted2';
 
   el.style.display = 'block';
   el.innerHTML = `
     <div class="trange-wrap">
       <div class="trange-top">
-        <span class="trange-title">TODAY'S RANGE · 今日实际盈亏区间</span>
+        <span class="trange-title">TODAY'S RANGE · 实际盈亏区间</span>
         <span class="trange-vals">
-          <span class="trange-item ${lowCls}">低点&nbsp;<b>${fmt(low)}</b></span>
+          ${low != null ? `<span class="trange-item ${cls(low)}">最低&nbsp;<b>${fmt(low)}</b></span><span class="trange-sep">|</span>` : ''}
+          <span class="trange-item ${cls(current)}">当前&nbsp;<b>${fmt(current)}</b></span>
           <span class="trange-sep">|</span>
-          <span class="trange-item ${curCls}">当前&nbsp;<b>${fmt(current)}</b></span>
-          <span class="trange-sep">|</span>
-          <span class="trange-item ${highCls}">高点&nbsp;<b>${fmt(high)}</b></span>
+          <span class="trange-item ${cls(high)}">最高&nbsp;<b>${fmt(high)}</b></span>
+          ${theoryWin != null ? `<span class="trange-sep">·</span><span class="trange-item muted2 trange-theory">理论&nbsp;<span class="red">${fmt(theoryLoss)}</span>&nbsp;~&nbsp;<span class="green">+$${theoryWin}</span></span>` : ''}
         </span>
       </div>
       <div class="trange-bar">
-        ${hasNeg ? `<div class="trange-neg" style="width:${zeroPct.toFixed(1)}%"></div>` : ''}
-        <div class="trange-pos" style="width:${(100 - zeroPct).toFixed(1)}%"></div>
-        ${hasNeg ? `<div class="trange-zero" style="left:${zeroPct.toFixed(1)}%"></div>` : ''}
-        <div class="trange-marker" style="left:${nowPct.toFixed(1)}%" title="${fmt(current)} 当前">
-          <div class="trange-dot"></div>
-        </div>
+        <div class="trange-bg-neg" style="width:${zeroPct.toFixed(1)}%"></div>
+        <div class="trange-bg-pos" style="width:${(100 - zeroPct).toFixed(1)}%"></div>
+        <div class="trange-zero" style="left:${zeroPct.toFixed(1)}%"></div>
+        ${zoneW > 0.5 ? `<div class="trange-zone" style="left:${zoneL.toFixed(1)}%;width:${zoneW.toFixed(1)}%"></div>` : ''}
+        ${low != null ? `<div class="trange-pin" style="left:${lowPct.toFixed(1)}%"><div class="trange-pin-line"></div><div class="trange-pin-lbl ${cls(low)}">${fmt(low)}</div></div>` : ''}
+        <div class="trange-pin" style="left:${highPct.toFixed(1)}%"><div class="trange-pin-line"></div><div class="trange-pin-lbl ${cls(high)}">${fmt(high)}</div></div>
+        <div class="trange-now" style="left:${currentPct.toFixed(1)}%"><div class="trange-dot-now ${cls(current)}"></div></div>
       </div>
       <div class="trange-axis">
-        <span class="${lowCls}">${fmt(low)}</span>
-        ${hasNeg ? `<span class="trange-zero-lbl" style="left:${zeroPct.toFixed(1)}%">±0</span>` : ''}
-        <span class="${highCls}">${fmt(high)}</span>
+        ${theoryLoss != null ? `<span class="${cls(theoryLoss)}">${fmt(theoryLoss)}<br><span class="trange-axis-sub">全止损</span></span>` : ''}
+        <span class="trange-zero-lbl" style="left:${zeroPct.toFixed(1)}%">0</span>
+        ${theoryWin != null ? `<span class="green">+$${theoryWin}<br><span class="trange-axis-sub">全止盈</span></span>` : ''}
       </div>
     </div>`;
-}
-
-function updatePerfBar() {
-  if (!_pnlData.length) return;
-  const total   = _pnlData.length;
-  const wins    = _pnlData.filter(p => p.status === 'winning'  || p.status === 'hit_tp').length;
-  const losses  = _pnlData.filter(p => p.status === 'losing'   || p.status === 'hit_sl').length;
-  const exits   = _pnlData.filter(p => p.status === 'time_exit').length;
-
-  const segsEl  = document.getElementById('perf-segs');
-  const statsEl = document.getElementById('perf-stats');
-
-  if (segsEl) {
-    segsEl.innerHTML = _pnlData.map(p => {
-      const cls = p.status === 'pending'  ? 'neutral'
-                : (p.status === 'winning' || p.status === 'hit_tp') ? 'win'
-                : (p.status === 'losing'  || p.status === 'hit_sl') ? 'loss'
-                : p.status === 'time_exit' ? 'exit'
-                : 'neutral';
-      const sym    = escHtml(p.symbol).replace('USD','').replace('=X','');
-      const pctTxt = p.status === 'pending' ? `⏳${escHtml(p.entry_start)}` : escHtml(p.pnl_pct);
-      return `<div class="perf-seg ${cls}" title="${escHtml(p.symbol)} ${escHtml(p.pnl_pct)} ${escHtml(p.pnl_usd)}">
-        <span class="perf-sym">${sym}</span>
-        <span class="perf-pct">${pctTxt}</span>
-      </div>`;
-    }).join('');
-  }
-
-  if (statsEl) {
-    const rate = total > 0 ? Math.round(wins / total * 100) : 0;
-    const cls  = wins > losses ? 'green' : wins < losses ? 'red' : 'muted2';
-    statsEl.innerHTML =
-      `<span class="${cls} fw">${wins}W ${losses}L</span>&nbsp;<span class="muted2">${rate}%</span>`;
-  }
 }
 
 // ── Ticker Tape ──
@@ -658,51 +631,8 @@ async function fetchHistory() {
     const res = await fetch('/api/history');
     if (!res.ok) return;
     const data = await res.json();
-    const history = data.history || [];
-
-    updateYesterdayBar(history);
-    renderHistoryTable(history);
+    renderHistoryTable(data.history || []);
   } catch {}
-}
-
-function updateYesterdayBar(history) {
-  const segsEl  = document.getElementById('yesterday-segs');
-  const statsEl = document.getElementById('yesterday-stats');
-  if (!segsEl || !statsEl) return;
-
-  const yesterday = history[0]; // newest first
-  if (!yesterday) {
-    segsEl.innerHTML = `<div class="perf-seg neutral" style="flex:3">
-      <span class="perf-sym" style="color:var(--muted)">N/A</span></div>`;
-    statsEl.innerHTML = '<span class="muted2">N/A</span>';
-    return;
-  }
-
-  const detail = yesterday.detail || [];
-  if (detail.length) {
-    segsEl.innerHTML = detail.map(p => {
-      const cls = p.status === 'hit_tp'    ? 'win'
-                : p.status === 'hit_sl'    ? 'loss'
-                : p.status === 'time_exit' ? 'exit'
-                : p.pnl_value > 0          ? 'win' : 'loss';
-      const sym = escHtml(p.symbol).replace('USD','').replace('=X','');
-      return `<div class="perf-seg ${cls}" title="${escHtml(p.symbol)} ${escHtml(p.pnl_pct)} ${escHtml(p.pnl_usd||'')}">
-        <span class="perf-sym">${sym}</span>
-        <span class="perf-pct">${escHtml(p.pnl_pct)}</span>
-      </div>`;
-    }).join('');
-  } else {
-    segsEl.innerHTML = `<div class="perf-seg neutral" style="flex:3">
-      <span class="perf-sym" style="color:var(--muted)">${escHtml(yesterday.date)}</span></div>`;
-  }
-
-  const wc = yesterday.wins > yesterday.losses ? 'green'
-           : yesterday.wins < yesterday.losses ? 'red' : 'muted2';
-  const uc = yesterday.total_usd && !yesterday.total_usd.startsWith('-') ? 'green' : 'red';
-  statsEl.innerHTML =
-    `<span class="${wc} fw">${yesterday.wins}W ${yesterday.losses}L</span>` +
-    `&nbsp;<span class="muted2">${yesterday.win_rate}%</span>` +
-    (yesterday.total_usd ? `&nbsp;<span class="${uc}" style="font-size:11px">${escHtml(yesterday.total_usd)}</span>` : '');
 }
 
 function renderHistoryTable(history) {
@@ -711,71 +641,60 @@ function renderHistoryTable(history) {
   if (!scrollEl) return;
 
   if (!history.length) {
-    scrollEl.innerHTML = `<div style="text-align:center;color:var(--muted);padding:32px;font-size:13px;letter-spacing:1px">暂无记录 — 今天交易完成后自动保存</div>`;
+    scrollEl.innerHTML = `<div class="hist-empty">暂无记录 — 今天交易完成后自动保存</div>`;
     if (subEl) subEl.textContent = '近30天记录';
     return;
   }
-
   if (subEl) subEl.textContent = `近30天记录 · 共 ${history.length} 天`;
 
-  // Scale bars by max absolute P&L
   const maxAbs = Math.max(...history.map(d => Math.abs(parsePnlUsd(d.total_usd) || 0)), 1);
+  const fmt    = v => `${v >= 0 ? '+' : ''}$${Math.abs(Math.round(v))}`;
+  const cls    = v => v >= 0 ? 'green' : 'red';
 
   const rows = history.map(d => {
-    const usd     = parsePnlUsd(d.total_usd);
-    const isPos   = usd >= 0;
-    const barPct  = Math.min(100, Math.abs(usd) / maxAbs * 100);
-    const usdStr  = d.total_usd || (isPos ? `+$${Math.round(usd)}` : `$${Math.round(usd)}`);
-    const wc      = d.wins > d.losses ? 'green' : d.wins < d.losses ? 'red' : 'muted2';
-    const dateShort = (d.date || '').slice(5); // "03-05"
+    const usd       = parsePnlUsd(d.total_usd);
+    const isPos     = usd >= 0;
+    const barPct    = Math.min(100, Math.abs(usd) / maxAbs * 100);
+    const usdStr    = d.total_usd || fmt(usd);
+    const wc        = d.wins > d.losses ? 'green' : d.wins < d.losses ? 'red' : 'muted2';
+    const dateShort = (d.date || '').slice(5);
 
+    // Per-symbol detail
     const detail = (d.detail || []).map(p => {
       const pv  = p.pnl_value != null ? p.pnl_value : parseFloat(p.pnl_pct);
-      const cls = pv > 0 ? 'green' : 'red';
       const sym = p.symbol.replace(/USD$/, '').replace('=X', '');
-      return `<span class="${cls}">${sym}&nbsp;${escHtml(p.pnl_pct)}</span>`;
-    }).join('<span class="muted2"> · </span>');
+      const sc  = p.status === 'hit_tp' ? 'green' : p.status === 'hit_sl' ? 'red' : pv > 0 ? 'green' : 'red';
+      const icon = p.status === 'hit_tp' ? '✓' : p.status === 'hit_sl' ? '✕' : p.status === 'time_exit' ? '⏰' : '';
+      return `<span class="hd-sym ${sc}">${icon}${sym}&nbsp;${escHtml(p.pnl_pct)}</span>`;
+    }).join('');
 
-    // Intraday P&L range: use actual tracked high/low if available
-    let rangeHtml;
-    if (d.pnl_range_high != null && d.pnl_range_low != null) {
-      const hi   = Math.round(d.pnl_range_high);
-      const lo   = Math.round(d.pnl_range_low);
-      const fmtR = v => `${v >= 0 ? '+' : ''}$${Math.abs(v)}`;
-      const hCls = hi >= 0 ? 'green' : 'red';
-      const lCls = lo <  0 ? 'red'   : 'green';
-      rangeHtml = `<span class="hist-day-range">` +
-        `<span class="${lCls}">${fmtR(lo)}</span>` +
-        `<span class="muted2">~</span>` +
-        `<span class="${hCls}">${fmtR(hi)}</span>` +
-        `</span>`;
-    } else {
-      // Fallback: gross win/loss from detail when no range data stored
-      const grossWin  = (d.detail || []).reduce((s, p) => { const v = parsePnlUsd(p.pnl_usd); return s + (v > 0 ? v : 0); }, 0);
-      const grossLoss = (d.detail || []).reduce((s, p) => { const v = parsePnlUsd(p.pnl_usd); return s + (v < 0 ? v : 0); }, 0);
-      rangeHtml = (grossWin > 0 || grossLoss < 0)
-        ? `<span class="hist-day-range">` +
-          (grossLoss < 0 ? `<span class="red">-$${Math.round(Math.abs(grossLoss))}</span>` : '') +
-          (grossLoss < 0 && grossWin > 0 ? `<span class="muted2">~</span>` : '') +
-          (grossWin  > 0 ? `<span class="green">+$${Math.round(grossWin)}</span>` : '') +
-          `</span>`
-        : '<span class="hist-day-range muted2">–</span>';
-    }
+    // Theory range
+    const tw = d.theory_max_win  != null ? Math.round(d.theory_max_win)  : null;
+    const tl = d.theory_max_loss != null ? Math.round(d.theory_max_loss) : null;
+    const theoryHtml = (tw != null && tl != null)
+      ? `<span class="hr-val"><span class="red">${fmt(tl)}</span><span class="hr-sep">~</span><span class="green">${fmt(tw)}</span></span>`
+      : `<span class="hr-val muted2">–</span>`;
+
+    // Actual intraday range
+    const ah = d.pnl_range_high != null ? Math.round(d.pnl_range_high) : null;
+    const al = d.pnl_range_low  != null ? Math.round(d.pnl_range_low)  : null;
+    const actualHtml = (ah != null || al != null)
+      ? `<span class="hr-val">` +
+        (al != null ? `<span class="${cls(al)}">${fmt(al)}</span><span class="hr-sep">~</span>` : `<span class="muted2">?~</span>`) +
+        `<span class="${cls(ah != null ? ah : 0)}">${ah != null ? fmt(ah) : '?'}</span></span>`
+      : `<span class="hr-val muted2">–</span>`;
 
     return `<div class="hist-day-row">
       <span class="hist-day-date">${escHtml(dateShort)}</span>
       <div class="hist-day-bars">
-        <div class="hist-bar-left">
-          <div class="hist-neg-bar" style="width:${isPos ? 0 : barPct.toFixed(1)}%"></div>
-        </div>
+        <div class="hist-bar-left"><div class="hist-neg-bar" style="width:${isPos?0:barPct.toFixed(1)}%"></div></div>
         <div class="hist-center-line"></div>
-        <div class="hist-bar-right">
-          <div class="hist-pos-bar" style="width:${isPos ? barPct.toFixed(1) : 0}%"></div>
-        </div>
+        <div class="hist-bar-right"><div class="hist-pos-bar" style="width:${isPos?barPct.toFixed(1):0}%"></div></div>
       </div>
-      <span class="hist-day-usd ${isPos ? 'green' : 'red'}">${escHtml(usdStr)}</span>
+      <span class="hist-day-usd ${isPos?'green':'red'}">${escHtml(usdStr)}</span>
       <span class="hist-day-wl ${wc}">${d.wins}W/${d.losses}L</span>
-      ${rangeHtml}
+      <span class="hist-range-col"><span class="hr-label">理论</span>${theoryHtml}</span>
+      <span class="hist-range-col"><span class="hr-label">实际</span>${actualHtml}</span>
       <span class="hist-day-detail">${detail || '<span class="muted2">–</span>'}</span>
     </div>`;
   }).join('');

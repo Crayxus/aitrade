@@ -1,0 +1,31 @@
+{
+  "2026-03-06": [
+    {
+      "symbol": "XAUUSD",
+      "direction": "LONG",
+      "entry_mid": 5121.9,
+      "stop_loss": 4998.5,
+      "take_profit": 5301.4,
+      "recommended_lots": 0.02,
+      "ticker": "XAUUSD=X"
+    },
+    {
+      "symbol": "NAS100",
+      "direction": "LONG",
+      "entry_mid": 25063.0,
+      "stop_loss": 24653.0,
+      "take_profit": 25820.0,
+      "recommended_lots": 0.5,
+      "ticker": "NQ=F"
+    },
+    {
+      "symbol": "BTCUSD",
+      "direction": "LONG",
+      "entry_mid": 70772.0,
+      "stop_loss": 68664.0,
+      "take_profit": 77823.0,
+      "recommended_lots": 0.1,
+      "ticker": "BTC-USD"
+    }
+  ]
+}

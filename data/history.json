@@ -35,7 +35,9 @@
         "status": "hit_sl"
       }
     ],
-    "pnl_range_high": null,
-    "pnl_range_low": null
+    "pnl_range_high": 284,
+    "pnl_range_low": null,
+    "theory_max_win": 1443,
+    "theory_max_loss": -663
   }
 }

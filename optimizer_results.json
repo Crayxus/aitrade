@@ -1,0 +1,717 @@
+[
+  {
+    "inst": {
+      "symbol": "EURUSD",
+      "ticker": "EURUSD=X",
+      "display": "EUR/USD",
+      "session": "London",
+      "entry_hour": 7,
+      "exit_utc": 19
+    },
+    "top": [
+      {
+        "params": {
+          "tp_mult": 1.5,
+          "sl_mult": 0.75,
+          "score_min": 3
+        },
+        "train": {
+          "n": 137,
+          "wr": 54.7,
+          "pf": 1.264,
+          "sharpe": 1.485,
+          "max_dd": 2.24,
+          "avg_pnl": 0.0289,
+          "total_r": 3.97
+        },
+        "test": {
+          "n": 172,
+          "wr": 51.2,
+          "pf": 1.1964,
+          "sharpe": 1.081,
+          "max_dd": 3.33,
+          "avg_pnl": 0.0281,
+          "total_r": 4.8
+        },
+        "score": 0.89899
+      },
+      {
+        "params": {
+          "tp_mult": 1.5,
+          "sl_mult": 0.5,
+          "score_min": 3
+        },
+        "train": {
+          "n": 137,
+          "wr": 51.8,
+          "pf": 1.2944,
+          "sharpe": 1.662,
+          "max_dd": 1.77,
+          "avg_pnl": 0.0298,
+          "total_r": 4.1
+        },
+        "test": {
+          "n": 172,
+          "wr": 50.0,
+          "pf": 1.1976,
+          "sharpe": 1.115,
+          "max_dd": 2.79,
+          "avg_pnl": 0.0276,
+          "total_r": 4.72
+        },
+        "score": 0.89785
+      },
+      {
+        "params": {
+          "tp_mult": 1.5,
+          "sl_mult": 1.5,
+          "score_min": 3
+        },
+        "train": {
+          "n": 137,
+          "wr": 54.7,
+          "pf": 1.1319,
+          "sharpe": 0.761,
+          "max_dd": 2.65,
+          "avg_pnl": 0.0161,
+          "total_r": 2.15
+        },
+        "test": {
+          "n": 172,
+          "wr": 51.2,
+          "pf": 1.1953,
+          "sharpe": 1.055,
+          "max_dd": 3.17,
+          "avg_pnl": 0.028,
+          "total_r": 4.77
+        },
+        "score": 0.89621
+      },
+      {
+        "params": {
+          "tp_mult": 1.5,
+          "sl_mult": 1.0,
+          "score_min": 3
+        },
+        "train": {
+          "n": 137,
+          "wr": 54.7,
+          "pf": 1.1582,
+          "sharpe": 0.914,
+          "max_dd": 2.44,
+          "avg_pnl": 0.0189,
+          "total_r": 2.54
+        },
+        "test": {
+          "n": 172,
+          "wr": 51.2,
+          "pf": 1.1929,
+          "sharpe": 1.051,
+          "max_dd": 3.21,
+          "avg_pnl": 0.0277,
+          "total_r": 4.72
+        },
+        "score": 0.89617
+      },
+      {
+        "params": {
+          "tp_mult": 1.5,
+          "sl_mult": 1.25,
+          "score_min": 3
+        },
+        "train": {
+          "n": 137,
+          "wr": 54.7,
+          "pf": 1.1584,
+          "sharpe": 0.911,
+          "max_dd": 2.3,
+          "avg_pnl": 0.0189,
+          "total_r": 2.55
+        },
+        "test": {
+          "n": 172,
+          "wr": 51.2,
+          "pf": 1.1846,
+          "sharpe": 1.0,
+          "max_dd": 3.45,
+          "avg_pnl": 0.0267,
+          "total_r": 4.53
+        },
+        "score": 0.89012
+      }
+    ],
+    "precomp_n": 503
+  },
+  {
+    "inst": {
+      "symbol": "GBPUSD",
+      "ticker": "GBPUSD=X",
+      "display": "GBP/USD",
+      "session": "London",
+      "entry_hour": 7,
+      "exit_utc": 19
+    },
+    "top": [
+      {
+        "params": {
+          "tp_mult": 1.0,
+          "sl_mult": 1.0,
+          "score_min": 1
+        },
+        "train": {
+          "n": 211,
+          "wr": 54.0,
+          "pf": 1.36,
+          "sharpe": 1.963,
+          "max_dd": 2.76,
+          "avg_pnl": 0.0411,
+          "total_r": 8.92
+        },
+        "test": {
+          "n": 293,
+          "wr": 45.7,
+          "pf": 0.906,
+          "sharpe": -0.627,
+          "max_dd": 7.23,
+          "avg_pnl": -0.0145,
+          "total_r": -4.35
+        },
+        "score": 0.65551
+      },
+      {
+        "params": {
+          "tp_mult": 1.0,
+          "sl_mult": 0.5,
+          "score_min": 1
+        },
+        "train": {
+          "n": 211,
+          "wr": 50.7,
+          "pf": 1.252,
+          "sharpe": 1.512,
+          "max_dd": 3.06,
+          "avg_pnl": 0.0295,
+          "total_r": 6.32
+        },
+        "test": {
+          "n": 293,
+          "wr": 44.7,
+          "pf": 0.8977,
+          "sharpe": -0.712,
+          "max_dd": 7.5,
+          "avg_pnl": -0.0156,
+          "total_r": -4.65
+        },
+        "score": 0.64585
+      },
+      {
+        "params": {
+          "tp_mult": 1.5,
+          "sl_mult": 1.0,
+          "score_min": 1
+        },
+        "train": {
+          "n": 211,
+          "wr": 54.0,
+          "pf": 1.3559,
+          "sharpe": 1.92,
+          "max_dd": 2.76,
+          "avg_pnl": 0.0406,
+          "total_r": 8.81
+        },
+        "test": {
+          "n": 293,
+          "wr": 45.4,
+          "pf": 0.8919,
+          "sharpe": -0.717,
+          "max_dd": 7.58,
+          "avg_pnl": -0.0168,
+          "total_r": -4.99
+        },
+        "score": 0.64344
+      },
+      {
+        "params": {
+          "tp_mult": 2.0,
+          "sl_mult": 1.0,
+          "score_min": 1
+        },
+        "train": {
+          "n": 211,
+          "wr": 54.0,
+          "pf": 1.345,
+          "sharpe": 1.868,
+          "max_dd": 2.76,
+          "avg_pnl": 0.0393,
+          "total_r": 8.53
+        },
+        "test": {
+          "n": 293,
+          "wr": 45.4,
+          "pf": 0.8919,
+          "sharpe": -0.717,
+          "max_dd": 7.58,
+          "avg_pnl": -0.0168,
+          "total_r": -4.99
+        },
+        "score": 0.64342
+      },
+      {
+        "params": {
+          "tp_mult": 2.5,
+          "sl_mult": 1.0,
+          "score_min": 1
+        },
+        "train": {
+          "n": 211,
+          "wr": 54.0,
+          "pf": 1.345,
+          "sharpe": 1.868,
+          "max_dd": 2.76,
+          "avg_pnl": 0.0393,
+          "total_r": 8.53
+        },
+        "test": {
+          "n": 293,
+          "wr": 45.4,
+          "pf": 0.8919,
+          "sharpe": -0.717,
+          "max_dd": 7.58,
+          "avg_pnl": -0.0168,
+          "total_r": -4.99
+        },
+        "score": 0.64342
+      }
+    ],
+    "precomp_n": 504
+  },
+  {
+    "inst": {
+      "symbol": "NAS100",
+      "ticker": "NQ=F",
+      "display": "Nasdaq 100",
+      "session": "NY",
+      "entry_hour": 13,
+      "exit_utc": 19
+    },
+    "top": [
+      {
+        "params": {
+          "tp_mult": 1.0,
+          "sl_mult": 0.75,
+          "score_min": 1
+        },
+        "train": {
+          "n": 201,
+          "wr": 49.3,
+          "pf": 0.9278,
+          "sharpe": -0.47,
+          "max_dd": 15.05,
+          "avg_pnl": -0.025,
+          "total_r": -5.58
+        },
+        "test": {
+          "n": 279,
+          "wr": 51.3,
+          "pf": 1.0664,
+          "sharpe": 0.384,
+          "max_dd": 14.27,
+          "avg_pnl": 0.0237,
+          "total_r": 5.42
+        },
+        "score": 0.79659
+      },
+      {
+        "params": {
+          "tp_mult": 2.0,
+          "sl_mult": 0.75,
+          "score_min": 1
+        },
+        "train": {
+          "n": 201,
+          "wr": 49.3,
+          "pf": 0.9439,
+          "sharpe": -0.357,
+          "max_dd": 14.79,
+          "avg_pnl": -0.0194,
+          "total_r": -4.55
+        },
+        "test": {
+          "n": 279,
+          "wr": 51.3,
+          "pf": 1.0335,
+          "sharpe": 0.199,
+          "max_dd": 14.81,
+          "avg_pnl": 0.012,
+          "total_r": 2.09
+        },
+        "score": 0.77401
+      },
+      {
+        "params": {
+          "tp_mult": 2.5,
+          "sl_mult": 0.75,
+          "score_min": 1
+        },
+        "train": {
+          "n": 201,
+          "wr": 49.3,
+          "pf": 0.9439,
+          "sharpe": -0.357,
+          "max_dd": 14.79,
+          "avg_pnl": -0.0194,
+          "total_r": -4.55
+        },
+        "test": {
+          "n": 279,
+          "wr": 51.3,
+          "pf": 1.0335,
+          "sharpe": 0.199,
+          "max_dd": 14.81,
+          "avg_pnl": 0.012,
+          "total_r": 2.09
+        },
+        "score": 0.77401
+      },
+      {
+        "params": {
+          "tp_mult": 3.0,
+          "sl_mult": 0.75,
+          "score_min": 1
+        },
+        "train": {
+          "n": 201,
+          "wr": 49.3,
+          "pf": 0.9439,
+          "sharpe": -0.357,
+          "max_dd": 14.79,
+          "avg_pnl": -0.0194,
+          "total_r": -4.55
+        },
+        "test": {
+          "n": 279,
+          "wr": 51.3,
+          "pf": 1.0335,
+          "sharpe": 0.199,
+          "max_dd": 14.81,
+          "avg_pnl": 0.012,
+          "total_r": 2.09
+        },
+        "score": 0.77401
+      },
+      {
+        "params": {
+          "tp_mult": 1.5,
+          "sl_mult": 0.75,
+          "score_min": 1
+        },
+        "train": {
+          "n": 201,
+          "wr": 49.3,
+          "pf": 0.9472,
+          "sharpe": -0.335,
+          "max_dd": 14.79,
+          "avg_pnl": -0.0183,
+          "total_r": -4.34
+        },
+        "test": {
+          "n": 279,
+          "wr": 51.3,
+          "pf": 1.0329,
+          "sharpe": 0.195,
+          "max_dd": 14.86,
+          "avg_pnl": 0.0117,
+          "total_r": 2.03
+        },
+        "score": 0.77372
+      }
+    ],
+    "precomp_n": 480
+  },
+  {
+    "inst": {
+      "symbol": "USOIL",
+      "ticker": "CL=F",
+      "display": "Crude Oil",
+      "session": "NY",
+      "entry_hour": 13,
+      "exit_utc": 19
+    },
+    "top": [
+      {
+        "params": {
+          "tp_mult": 1.0,
+          "sl_mult": 0.5,
+          "score_min": 1
+        },
+        "train": {
+          "n": 164,
+          "wr": 50.6,
+          "pf": 1.2122,
+          "sharpe": 1.235,
+          "max_dd": 9.46,
+          "avg_pnl": 0.0928,
+          "total_r": 15.09
+        },
+        "test": {
+          "n": 226,
+          "wr": 45.6,
+          "pf": 0.8432,
+          "sharpe": -1.095,
+          "max_dd": 24.1,
+          "avg_pnl": -0.0819,
+          "total_r": -18.22
+        },
+        "score": 0.60191
+      },
+      {
+        "params": {
+          "tp_mult": 1.0,
+          "sl_mult": 1.5,
+          "score_min": 1
+        },
+        "train": {
+          "n": 164,
+          "wr": 50.6,
+          "pf": 1.0768,
+          "sharpe": 0.452,
+          "max_dd": 13.53,
+          "avg_pnl": 0.0378,
+          "total_r": 4.87
+        },
+        "test": {
+          "n": 226,
+          "wr": 46.9,
+          "pf": 0.8175,
+          "sharpe": -1.188,
+          "max_dd": 26.56,
+          "avg_pnl": -0.0992,
+          "total_r": -21.67
+        },
+        "score": 0.58776
+      },
+      {
+        "params": {
+          "tp_mult": 1.0,
+          "sl_mult": 0.75,
+          "score_min": 1
+        },
+        "train": {
+          "n": 164,
+          "wr": 50.6,
+          "pf": 1.1676,
+          "sharpe": 0.976,
+          "max_dd": 11.1,
+          "avg_pnl": 0.0761,
+          "total_r": 11.89
+        },
+        "test": {
+          "n": 226,
+          "wr": 46.5,
+          "pf": 0.8178,
+          "sharpe": -1.25,
+          "max_dd": 25.35,
+          "avg_pnl": -0.0989,
+          "total_r": -21.46
+        },
+        "score": 0.58345
+      },
+      {
+        "params": {
+          "tp_mult": 1.5,
+          "sl_mult": 0.5,
+          "score_min": 1
+        },
+        "train": {
+          "n": 164,
+          "wr": 50.6,
+          "pf": 1.1869,
+          "sharpe": 1.104,
+          "max_dd": 9.55,
+          "avg_pnl": 0.0818,
+          "total_r": 13.07
+        },
+        "test": {
+          "n": 226,
+          "wr": 45.6,
+          "pf": 0.8162,
+          "sharpe": -1.313,
+          "max_dd": 25.45,
+          "avg_pnl": -0.096,
+          "total_r": -20.73
+        },
+        "score": 0.57817
+      },
+      {
+        "params": {
+          "tp_mult": 2.0,
+          "sl_mult": 0.5,
+          "score_min": 1
+        },
+        "train": {
+          "n": 164,
+          "wr": 50.6,
+          "pf": 1.1869,
+          "sharpe": 1.104,
+          "max_dd": 9.55,
+          "avg_pnl": 0.0818,
+          "total_r": 13.07
+        },
+        "test": {
+          "n": 226,
+          "wr": 45.6,
+          "pf": 0.8162,
+          "sharpe": -1.313,
+          "max_dd": 25.45,
+          "avg_pnl": -0.096,
+          "total_r": -20.73
+        },
+        "score": 0.57817
+      }
+    ],
+    "precomp_n": 390
+  },
+  {
+    "inst": {
+      "symbol": "BTCUSD",
+      "ticker": "BTC-USD",
+      "display": "Bitcoin",
+      "session": "NY",
+      "entry_hour": 13,
+      "exit_utc": 19
+    },
+    "top": [
+      {
+        "params": {
+          "tp_mult": 2.0,
+          "sl_mult": 0.5,
+          "score_min": 2
+        },
+        "train": {
+          "n": 261,
+          "wr": 51.0,
+          "pf": 1.1475,
+          "sharpe": 0.845,
+          "max_dd": 14.77,
+          "avg_pnl": 0.0898,
+          "total_r": 21.82
+        },
+        "test": {
+          "n": 359,
+          "wr": 52.1,
+          "pf": 1.323,
+          "sharpe": 1.604,
+          "max_dd": 12.8,
+          "avg_pnl": 0.1509,
+          "total_r": 65.17
+        },
+        "score": 0.98322
+      },
+      {
+        "params": {
+          "tp_mult": 1.5,
+          "sl_mult": 0.5,
+          "score_min": 2
+        },
+        "train": {
+          "n": 261,
+          "wr": 51.0,
+          "pf": 1.1608,
+          "sharpe": 0.911,
+          "max_dd": 14.77,
+          "avg_pnl": 0.0978,
+          "total_r": 24.31
+        },
+        "test": {
+          "n": 359,
+          "wr": 52.1,
+          "pf": 1.3172,
+          "sharpe": 1.584,
+          "max_dd": 12.8,
+          "avg_pnl": 0.1482,
+          "total_r": 63.62
+        },
+        "score": 0.98024
+      },
+      {
+        "params": {
+          "tp_mult": 2.5,
+          "sl_mult": 0.5,
+          "score_min": 2
+        },
+        "train": {
+          "n": 261,
+          "wr": 51.0,
+          "pf": 1.1475,
+          "sharpe": 0.845,
+          "max_dd": 14.77,
+          "avg_pnl": 0.0898,
+          "total_r": 21.82
+        },
+        "test": {
+          "n": 359,
+          "wr": 52.1,
+          "pf": 1.316,
+          "sharpe": 1.581,
+          "max_dd": 12.8,
+          "avg_pnl": 0.1476,
+          "total_r": 63.33
+        },
+        "score": 0.97886
+      },
+      {
+        "params": {
+          "tp_mult": 3.0,
+          "sl_mult": 0.5,
+          "score_min": 2
+        },
+        "train": {
+          "n": 261,
+          "wr": 51.0,
+          "pf": 1.1475,
+          "sharpe": 0.845,
+          "max_dd": 14.77,
+          "avg_pnl": 0.0898,
+          "total_r": 21.82
+        },
+        "test": {
+          "n": 359,
+          "wr": 52.1,
+          "pf": 1.316,
+          "sharpe": 1.581,
+          "max_dd": 12.8,
+          "avg_pnl": 0.1476,
+          "total_r": 63.33
+        },
+        "score": 0.97886
+      },
+      {
+        "params": {
+          "tp_mult": 1.0,
+          "sl_mult": 0.5,
+          "score_min": 2
+        },
+        "train": {
+          "n": 261,
+          "wr": 51.0,
+          "pf": 1.1537,
+          "sharpe": 0.881,
+          "max_dd": 13.7,
+          "avg_pnl": 0.0935,
+          "total_r": 23.02
+        },
+        "test": {
+          "n": 359,
+          "wr": 52.1,
+          "pf": 1.3054,
+          "sharpe": 1.557,
+          "max_dd": 12.8,
+          "avg_pnl": 0.1427,
+          "total_r": 60.68
+        },
+        "score": 0.97297
+      }
+    ],
+    "precomp_n": 660
+  }
+]

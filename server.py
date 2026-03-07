@@ -508,19 +508,25 @@ def snapshot_day(date_str, pnl_list):
     )
 
     rng = _today_pnl_range.get(date_str, {})
+    # Theoretical max win/loss from today's strategy cache
+    strats_today = _cache.get(date_str, [])
+    theory_max_win  = round(sum(s.get("profit_usd", 0) for s in strats_today)) if strats_today else None
+    theory_max_loss = -round(sum(s.get("risk_usd",  0) for s in strats_today)) if strats_today else None
     record = {
-        "date":           date_str,
-        "wins":           len(wins),
-        "losses":         len(losses),
-        "total":          len(pnl_list),
-        "win_rate":       round(len(wins) / len(pnl_list) * 100) if pnl_list else 0,
-        "avg_pnl":        f"{avg:+.2f}%",
-        "total_usd":      f"{'+' if total_usd >= 0 else ''}${total_usd}",
-        "best":           {"symbol": best["symbol"],  "pnl": best["pnl_pct"]}  if best  else None,
-        "worst":          {"symbol": worst["symbol"], "pnl": worst["pnl_pct"]} if worst else None,
-        "detail":         [{k: p[k] for k in ("symbol","pnl_pct","pnl_usd","status")} for p in pnl_list],
-        "pnl_range_high": rng.get("high"),
-        "pnl_range_low":  rng.get("low"),
+        "date":            date_str,
+        "wins":            len(wins),
+        "losses":          len(losses),
+        "total":           len(pnl_list),
+        "win_rate":        round(len(wins) / len(pnl_list) * 100) if pnl_list else 0,
+        "avg_pnl":         f"{avg:+.2f}%",
+        "total_usd":       f"{'+' if total_usd >= 0 else ''}${total_usd}",
+        "best":            {"symbol": best["symbol"],  "pnl": best["pnl_pct"]}  if best  else None,
+        "worst":           {"symbol": worst["symbol"], "pnl": worst["pnl_pct"]} if worst else None,
+        "detail":          [{k: p[k] for k in ("symbol","pnl_pct","pnl_usd","status")} for p in pnl_list],
+        "pnl_range_high":  rng.get("high"),
+        "pnl_range_low":   rng.get("low"),
+        "theory_max_win":  theory_max_win,
+        "theory_max_loss": theory_max_loss,
     }
     _history[date_str] = record
     save_history(_history)
@@ -595,6 +601,8 @@ def _save_strategy_cache(date_str, strategies):
             "take_profit":       s["take_profit"],
             "recommended_lots":  s.get("recommended_lots", 0.1),
             "ticker":            next((c["ticker"] for c in STRATEGY_CONFIGS if c["symbol"] == s["symbol"]), None),
+            "risk_usd":          s.get("risk_usd", 0),
+            "profit_usd":        s.get("profit_usd", 0),
         } for s in strategies]
         # Keep last 7 days to avoid unbounded growth
         cutoff = (datetime.datetime.utcnow() + datetime.timedelta(hours=8) - datetime.timedelta(days=7)).strftime("%Y-%m-%d")
@@ -884,6 +892,15 @@ def _startup_finalize_history():
                 print(f"[STARTUP] History error for {s.get('symbol')}: {e}")
 
         if pnl_list:
+            # Inject theory values into _cache so snapshot_day can pick them up
+            theory_strats = all_caches.get(yesterday, [])
+            if yesterday not in _cache and theory_strats:
+                _cache[yesterday] = [
+                    {"symbol": s["symbol"],
+                     "profit_usd": s.get("profit_usd", 0),
+                     "risk_usd":   s.get("risk_usd", 0)}
+                    for s in theory_strats
+                ]
             snapshot_day(yesterday, pnl_list)
             print(f"[STARTUP] History saved for {yesterday}: {len(pnl_list)} positions")
 

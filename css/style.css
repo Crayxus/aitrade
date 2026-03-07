@@ -883,32 +883,63 @@ main { padding: 24px 28px; max-width: 1440px; margin: 0 auto; }
   text-overflow: ellipsis;
 }
 
-/* History row: per-day gross range chip */
-.hist-day-range {
+/* History row: range columns */
+.hist-range-col {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 11px;
   white-space: nowrap;
-  min-width: 80px;
   flex-shrink: 0;
 }
 
-/* Today's Range bar (at top of history panel) */
-#today-range {
-  padding: 10px 20px 8px;
-  border-bottom: 1px solid var(--border);
+.hr-label {
+  font-size: 9px;
+  color: var(--muted);
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  padding: 1px 4px;
+  border: 1px solid var(--border2);
+  border-radius: 3px;
 }
 
-.trange-wrap {}
+.hr-val {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-weight: 600;
+}
+
+.hr-sep { color: var(--muted); font-size: 10px; }
+
+.hd-sym {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.hist-empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 32px;
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+
+/* ── TODAY'S RANGE bar (thicker, with high/low pins) ── */
+#today-range {
+  padding: 14px 24px 10px;
+  border-bottom: 1px solid var(--border);
+}
 
 .trange-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .trange-title {
@@ -922,72 +953,137 @@ main { padding: 24px 28px; max-width: 1440px; margin: 0 auto; }
 .trange-vals {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
+  flex-wrap: wrap;
 }
 
 .trange-item { white-space: nowrap; }
-.trange-item.green { color: var(--green); }
-.trange-item.red   { color: var(--red); }
+.trange-item.green  { color: var(--green); }
+.trange-item.red    { color: var(--red); }
 .trange-item.muted2 { color: var(--muted2); }
-.trange-sep { color: var(--muted); }
+.trange-theory      { font-size: 10px !important; }
+.trange-sep         { color: var(--muted); }
 
+/* The main bar — thick */
 .trange-bar {
   position: relative;
-  height: 7px;
-  border-radius: 4px;
+  height: 22px;
+  border-radius: 6px;
   overflow: visible;
   display: flex;
-  margin-bottom: 5px;
+  margin-bottom: 24px;
 }
 
-.trange-neg {
-  background: rgba(255,77,106,.40);
+.trange-bg-neg {
+  background: rgba(255,77,106,.25);
   height: 100%;
-  border-radius: 4px 0 0 4px;
+  border-radius: 6px 0 0 6px;
+  flex-shrink: 0;
 }
 
-.trange-pos {
-  background: rgba(0,217,126,.30);
+.trange-bg-pos {
+  background: rgba(0,217,126,.20);
   height: 100%;
-  border-radius: 0 4px 4px 0;
+  border-radius: 0 6px 6px 0;
+  flex-shrink: 0;
 }
 
+/* Actual explored zone — brighter overlay */
+.trange-zone {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: rgba(255,255,255,.10);
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,.15);
+  pointer-events: none;
+}
+
+/* Zero line */
 .trange-zero {
   position: absolute;
-  top: -3px;
+  top: -4px;
   width: 2px;
-  height: 13px;
-  background: var(--muted);
+  height: calc(100% + 8px);
+  background: var(--muted2);
   transform: translateX(-50%);
   border-radius: 1px;
-  z-index: 1;
+  z-index: 2;
 }
 
-.trange-marker {
+/* Current position dot */
+.trange-now {
   position: absolute;
   top: 50%;
   transform: translate(-50%, -50%);
+  z-index: 4;
+}
+
+.trange-dot-now {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 3px solid var(--bg);
+  box-shadow: 0 0 8px rgba(255,255,255,.5);
+}
+
+.trange-dot-now.green  { background: var(--green); }
+.trange-dot-now.red    { background: var(--red); }
+.trange-dot-now.muted2 { background: var(--muted2); }
+
+/* High / Low pins */
+.trange-pin {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   z-index: 3;
 }
 
-.trange-dot {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
+.trange-pin-line {
+  width: 2px;
+  height: 22px;
   background: var(--text);
-  border: 2px solid var(--bg);
-  box-shadow: 0 0 6px rgba(255,255,255,.4);
+  opacity: .6;
+  border-radius: 1px;
 }
 
+.trange-pin-lbl {
+  position: absolute;
+  top: 26px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.trange-pin-lbl.green { color: var(--green); }
+.trange-pin-lbl.red   { color: var(--red); }
+
+/* Axis */
 .trange-axis {
   position: relative;
   display: flex;
   justify-content: space-between;
-  font-size: 9px;
+  font-size: 10px;
   font-family: var(--mono);
   font-weight: 600;
+  line-height: 1.3;
+}
+
+.trange-axis-end { text-align: center; }
+
+.trange-axis-sub {
+  font-size: 8px;
+  font-weight: 400;
+  color: var(--muted2);
+  letter-spacing: .5px;
+  display: block;
 }
 
 .trange-zero-lbl {

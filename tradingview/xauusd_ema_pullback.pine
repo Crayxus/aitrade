@@ -1,0 +1,84 @@
+// @version=5
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  XAUUSD — EMA Pullback + ATR Bracket                           ║
+// ║  Timeframe: 5m   Backtest: PF=1.64  WR=55%  175trades/5yr     ║
+// ║  Source: ilahuerta-IA/backtrader-pullback-window-xauusd        ║
+// ║  Entry: EMA14>18>24 trend + 1-3 pullback candles + breakout   ║
+// ║  SL: 2.5×ATR   TP: 12×ATR                                     ║
+// ╚══════════════════════════════════════════════════════════════════╝
+strategy("XAUUSD EMA Pullback ATR", overlay=true, pyramiding=0, default_qty_type=strategy.percent_of_equity, default_qty_value=1, initial_capital=10000, currency=currency.USD, commission_type=strategy.commission.percent, commission_value=0.02)
+
+// ── Inputs ────────────────────────────────────────────────────────
+i_ema_fast = input.int(14,   "EMA Fast",    minval=1)
+i_ema_med  = input.int(18,   "EMA Medium",  minval=1)
+i_ema_slow = input.int(24,   "EMA Slow",    minval=1)
+i_atr_len  = input.int(14,   "ATR Period",  minval=1)
+i_sl_mult  = input.float(2.5,  "SL × ATR", step=0.25, minval=0.5)
+i_tp_mult  = input.float(12.0, "TP × ATR", step=0.5,  minval=1.0)
+
+// ── Indicators ────────────────────────────────────────────────────
+ema_fast = ta.ema(close, i_ema_fast)
+ema_med  = ta.ema(close, i_ema_med)
+ema_slow = ta.ema(close, i_ema_slow)
+atr_val  = ta.atr(i_atr_len)
+
+// ── Trend ─────────────────────────────────────────────────────────
+bull_trend = ema_fast > ema_med and ema_med > ema_slow
+bear_trend = ema_fast < ema_med and ema_med < ema_slow
+
+// ── Pullback counter (1-3 counter-trend candles, reset if >3) ────
+var int pb = 0
+
+if bull_trend
+    pb := close < open ? math.min(pb + 1, 4) : 0
+
+if bear_trend
+    pb := close > open ? math.min(pb + 1, 4) : 0
+
+if not bull_trend and not bear_trend
+    pb := 0
+
+// ── Entry signals ─────────────────────────────────────────────────
+// Fire on first trend-direction candle after 1-3 counter-trend candles
+long_sig  = bull_trend and pb[1] >= 1 and pb[1] <= 3 and close > open and strategy.position_size == 0
+short_sig = bear_trend and pb[1] >= 1 and pb[1] <= 3 and close < open and strategy.position_size == 0
+
+// ── Orders ────────────────────────────────────────────────────────
+if long_sig
+    strategy.entry("L", strategy.long, comment="LONG pb=" + str.tostring(pb[1]))
+    strategy.exit("Lx", "L", stop=close - i_sl_mult * atr_val, limit=close + i_tp_mult * atr_val)
+
+if short_sig
+    strategy.entry("S", strategy.short, comment="SHORT pb=" + str.tostring(pb[1]))
+    strategy.exit("Sx", "S", stop=close + i_sl_mult * atr_val, limit=close - i_tp_mult * atr_val)
+
+// ── Alerts ────────────────────────────────────────────────────────
+if long_sig
+    alert('{"action":"LONG","symbol":"XAUUSD","price":' + str.tostring(math.round(close, 2)) + ',"sl":' + str.tostring(math.round(close - i_sl_mult * atr_val, 2)) + ',"tp":' + str.tostring(math.round(close + i_tp_mult * atr_val, 2)) + '}', alert.freq_once_per_bar_close)
+
+if short_sig
+    alert('{"action":"SHORT","symbol":"XAUUSD","price":' + str.tostring(math.round(close, 2)) + ',"sl":' + str.tostring(math.round(close + i_sl_mult * atr_val, 2)) + ',"tp":' + str.tostring(math.round(close - i_tp_mult * atr_val, 2)) + '}', alert.freq_once_per_bar_close)
+
+// ── Visuals ───────────────────────────────────────────────────────
+plot(ema_fast, "EMA14", color.new(color.aqua,   20), 1)
+plot(ema_med,  "EMA18", color.new(color.yellow, 20), 1)
+plot(ema_slow, "EMA24", color.new(color.orange, 20), 2)
+
+plotshape(long_sig,  style=shape.triangleup,   location=location.belowbar, color=color.lime, size=size.small, title="Long")
+plotshape(short_sig, style=shape.triangledown, location=location.abovebar, color=color.red,  size=size.small, title="Short")
+
+bgcolor(bull_trend ? color.new(color.green, 95) : bear_trend ? color.new(color.red, 95) : na)
+
+// ── Info table ────────────────────────────────────────────────────
+var table t = table.new(position.top_right, 2, 5, bgcolor=color.new(color.black, 70), border_width=1, border_color=color.new(color.gray, 60))
+if barstate.islast
+    table.cell(t, 0, 0, "XAUUSD PULLBACK", text_color=color.white,  text_size=size.small)
+    table.cell(t, 1, 0, "5m", text_color=color.yellow, text_size=size.small)
+    table.cell(t, 0, 1, "TREND", text_color=color.silver, text_size=size.tiny)
+    table.cell(t, 1, 1, bull_trend ? "BULL" : bear_trend ? "BEAR" : "NONE", text_color=bull_trend ? color.lime : bear_trend ? color.red : color.gray, text_size=size.small)
+    table.cell(t, 0, 2, "PULLBACK", text_color=color.silver, text_size=size.tiny)
+    table.cell(t, 1, 2, str.tostring(pb) + " candles", text_color=pb >= 1 and pb <= 3 ? color.lime : color.gray, text_size=size.small)
+    table.cell(t, 0, 3, "ATR", text_color=color.silver, text_size=size.tiny)
+    table.cell(t, 1, 3, str.tostring(math.round(atr_val, 2)), text_color=color.white, text_size=size.small)
+    table.cell(t, 0, 4, "SL/TP", text_color=color.silver, text_size=size.tiny)
+    table.cell(t, 1, 4, str.tostring(i_sl_mult) + "x / " + str.tostring(i_tp_mult) + "x ATR", text_color=color.white, text_size=size.small)

@@ -17,6 +17,29 @@
       "hourly": "▲",
       "ema50": "▲"
     },
+    "status": "time_exit",
+    "pnl_pct": "-1.06%",
+    "pnl_usd": "$-547",
+    "close_px": 5120.2
+  },
+  "2026-03-06": {
+    "date": "2026-03-06",
+    "session": "NY",
+    "direction": "LONG",
+    "score": null,
+    "entry": 5090.5,
+    "sl": 4958.8,
+    "tp": 5279.9,
+    "atr": 115.5,
+    "confidence": "50%",
+    "signals": {
+      "daily_ema": "▲",
+      "weekly_mom": "▲",
+      "gap": "▲",
+      "rsi": "—",
+      "hourly": "▼",
+      "ema50": "▲"
+    },
     "status": "open",
     "pnl_pct": null,
     "pnl_usd": null,

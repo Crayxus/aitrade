@@ -1,0 +1,103 @@
+// @version=5
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  XAUUSD Daily Signal — London Open                              ║
+// ║  Chart: 1h   Entry: 15:00 BJ (07:00 UTC)   Exit: 03:00 BJ     ║
+// ║  Signals: 6-factor daily score (zero lookahead)                 ║
+// ╚══════════════════════════════════════════════════════════════════╝
+strategy("XAUUSD Daily", overlay=true, pyramiding=0, default_qty_type=strategy.cash, default_qty_value=1000, initial_capital=10000, currency=currency.USD, process_orders_on_close=true, commission_type=strategy.commission.percent, commission_value=0.01)
+
+// ── Inputs ────────────────────────────────────────────────────────
+i_tp = input.float(1.5, "TP × ATR(D)", step=0.25, minval=0.25, group="Parameters")
+i_sl = input.float(1.0, "SL × ATR(D)", step=0.25, minval=0.25, group="Parameters")
+i_sc = input.int(2,    "Min |score| (1-6)", minval=1, maxval=6,  group="Parameters")
+
+// ── Beijing time ──────────────────────────────────────────────────
+bj_h   = hour(time, "Asia/Shanghai")
+bj_m   = minute(time, "Asia/Shanghai")
+bj_min = bj_h * 60 + bj_m
+bj_day = year(time, "Asia/Shanghai") * 10000 + month(time, "Asia/Shanghai") * 100 + dayofmonth(time, "Asia/Shanghai")
+
+// London open 15:00-16:00 BJ  |  Force-exit 03:00-09:00 BJ
+in_entry = bj_min >= 900 and bj_min < 960
+in_exit  = bj_h >= 3 and bj_h < 9
+
+// ── Daily data (lookahead_off = yesterday's completed bar only) ───
+d_cls = request.security(syminfo.tickerid, "D", close,    lookahead=barmerge.lookahead_off)
+d_opn = request.security(syminfo.tickerid, "D", open,     lookahead=barmerge.lookahead_on)
+d_prv = request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_on)
+atr14 = request.security(syminfo.tickerid, "D", ta.atr(14), lookahead=barmerge.lookahead_off)
+
+// ── 6-signal score (all based on yesterday's data) ────────────────
+ema20 = ta.ema(d_cls, 20)
+ema50 = ta.ema(d_cls, 50)
+rsi14 = ta.rsi(d_cls, 14)
+mom20 = d_cls[20] != 0 ? (d_cls - d_cls[20]) / d_cls[20] : 0.0
+gap   = d_prv != 0 ? (d_opn - d_prv) / d_prv : 0.0
+
+s1 = d_cls > ema20 ? 1 : -1
+s2 = mom20 > 0 ? 1 : -1
+s3 = gap > 0.0005 ? 1 : gap < -0.0005 ? -1 : 0
+s4 = rsi14 < 40 ? 1 : rsi14 > 60 ? -1 : 0
+s5 = d_cls > d_cls[5] ? 1 : -1
+s6 = d_cls > ema50 ? 1 : -1
+score = s1 + s2 + s3 + s4 + s5 + s6
+
+// ── Entry: once per BJ day ────────────────────────────────────────
+var int last_day = 0
+no_pos = strategy.position_size == 0
+fresh  = last_day != bj_day
+
+sig_long  = in_entry and no_pos and fresh and score >=  i_sc
+sig_short = in_entry and no_pos and fresh and score <= -i_sc
+
+if sig_long
+    strategy.entry("L", strategy.long, comment="L" + str.tostring(score))
+    strategy.exit("Lx", "L", stop=close - i_sl * atr14, limit=close + i_tp * atr14)
+    last_day := bj_day
+
+if sig_short
+    strategy.entry("S", strategy.short, comment="S" + str.tostring(score))
+    strategy.exit("Sx", "S", stop=close + i_sl * atr14, limit=close - i_tp * atr14)
+    last_day := bj_day
+
+// ── Force-exit 03:00 BJ ───────────────────────────────────────────
+if in_exit and not no_pos
+    strategy.close_all(comment="03:00")
+
+// ── Alerts ────────────────────────────────────────────────────────
+if sig_long
+    alert('{"action":"LONG","symbol":"XAUUSD","sl":' + str.tostring(math.round(close - i_sl * atr14, 2)) + ',"tp":' + str.tostring(math.round(close + i_tp * atr14, 2)) + ',"score":' + str.tostring(score) + '}', alert.freq_once_per_bar_close)
+
+if sig_short
+    alert('{"action":"SHORT","symbol":"XAUUSD","sl":' + str.tostring(math.round(close + i_sl * atr14, 2)) + ',"tp":' + str.tostring(math.round(close - i_tp * atr14, 2)) + ',"score":' + str.tostring(score) + '}', alert.freq_once_per_bar_close)
+
+// ── Visuals ───────────────────────────────────────────────────────
+plot(ema20, "EMA20(D)", color.new(color.blue,   40), 1)
+plot(ema50, "EMA50(D)", color.new(color.orange, 40), 1)
+plotshape(sig_long,  style=shape.triangleup,   location=location.belowbar, color=color.lime, size=size.normal, title="Long")
+plotshape(sig_short, style=shape.triangledown, location=location.abovebar, color=color.red,  size=size.normal, title="Short")
+bgcolor(in_entry ? color.new(color.green, 90) : in_exit ? color.new(color.red, 95) : na)
+
+// ── Info table ────────────────────────────────────────────────────
+var table t = table.new(position.top_right, 2, 9, bgcolor=color.new(color.black, 70), border_width=1, border_color=color.new(color.gray, 60))
+if barstate.islast
+    table.cell(t, 0, 0, "XAUUSD DAILY", text_color=color.white, text_size=size.small)
+    table.cell(t, 1, 0, "London 15BJ", text_color=color.yellow, text_size=size.small)
+    sc_clr = math.abs(score) >= i_sc ? (score > 0 ? color.lime : color.red) : color.gray
+    table.cell(t, 0, 1, "SCORE", text_color=color.silver, text_size=size.tiny)
+    table.cell(t, 1, 1, str.tostring(score) + "/6", text_color=sc_clr, text_size=size.small)
+    table.cell(t, 0, 2, "s1 EMA20", text_color=color.silver, text_size=size.tiny)
+    table.cell(t, 1, 2, s1 > 0 ? "BULL" : "BEAR", text_color=s1 > 0 ? color.lime : color.red, text_size=size.small)
+    table.cell(t, 0, 3, "s2 MOM20", text_color=color.silver, text_size=size.tiny)
+    table.cell(t, 1, 3, s2 > 0 ? "UP" : "DOWN", text_color=s2 > 0 ? color.lime : color.red, text_size=size.small)
+    table.cell(t, 0, 4, "s3 GAP", text_color=color.silver, text_size=size.tiny)
+    table.cell(t, 1, 4, s3 > 0 ? "UP" : s3 < 0 ? "DOWN" : "FLAT", text_color=s3 > 0 ? color.lime : s3 < 0 ? color.red : color.gray, text_size=size.small)
+    table.cell(t, 0, 5, "s4 RSI14", text_color=color.silver, text_size=size.tiny)
+    table.cell(t, 1, 5, str.tostring(math.round(rsi14, 1)), text_color=rsi14 < 40 ? color.lime : rsi14 > 60 ? color.red : color.gray, text_size=size.small)
+    table.cell(t, 0, 6, "s5 MOM5D", text_color=color.silver, text_size=size.tiny)
+    table.cell(t, 1, 6, s5 > 0 ? "UP" : "DOWN", text_color=s5 > 0 ? color.lime : color.red, text_size=size.small)
+    table.cell(t, 0, 7, "ATR14(D)", text_color=color.silver, text_size=size.tiny)
+    table.cell(t, 1, 7, str.tostring(math.round(atr14, 2)), text_color=color.white, text_size=size.small)
+    st = in_entry ? "ENTRY" : in_exit ? "03:00 EXIT" : "WAIT"
+    table.cell(t, 0, 8, "STATUS", text_color=color.silver, text_size=size.tiny)
+    table.cell(t, 1, 8, st, text_color=in_entry ? color.lime : in_exit ? color.red : color.gray, text_size=size.small)
