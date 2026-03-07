@@ -294,6 +294,26 @@ function updatePortfolioPnl() {
 
 }
 
+// ── Harvest Alert State ──
+let _alertThreshold = parseInt(localStorage.getItem('harvestThreshold') || '300', 10);
+let _alertFired     = false;   // reset when current drops below threshold
+
+function _saveThreshold(v) {
+  _alertThreshold = v;
+  localStorage.setItem('harvestThreshold', v);
+}
+
+function _tryNotify(msg) {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'granted') {
+    new Notification('RICH TRADER · 割禾信号', { body: msg, icon: '/favicon.ico' });
+  } else if (Notification.permission !== 'denied') {
+    Notification.requestPermission().then(p => {
+      if (p === 'granted') new Notification('RICH TRADER · 割禾信号', { body: msg });
+    });
+  }
+}
+
 // ── Today's Actual P&L Range (tracked intraday high/low) ──
 function updateTodayRange(range) {
   const el = document.getElementById('today-range');
@@ -306,6 +326,16 @@ function updateTodayRange(range) {
   const high    = Math.round(range.high);
   const low     = range.low != null ? Math.round(range.low) : null;
   const current = Math.round(range.current);
+  const thresh  = _alertThreshold;
+
+  // Harvest alert logic
+  const alertTriggered = current >= thresh;
+  if (alertTriggered && !_alertFired) {
+    _alertFired = true;
+    _tryNotify(`组合盈利已达 +$${current}，超过割禾目标 +$${thresh}，考虑平仓！`);
+  } else if (!alertTriggered) {
+    _alertFired = false;  // reset so it fires again next time
+  }
 
   const barMin = theoryLoss != null ? theoryLoss : (low != null ? low - 20 : current - 100);
   const barMax = theoryWin  != null ? theoryWin  : high + 20;
@@ -316,11 +346,22 @@ function updateTodayRange(range) {
   const highPct    = pct(high);
   const lowPct     = low != null ? pct(low) : null;
   const currentPct = pct(current);
+  const threshPct  = pct(thresh);
   const zoneL      = lowPct != null ? Math.min(lowPct, highPct) : highPct;
   const zoneW      = lowPct != null ? Math.abs(highPct - lowPct) : 0;
 
   const fmt = v => `${v >= 0 ? '+' : ''}$${Math.abs(v)}`;
   const cls = v => v > 0 ? 'green' : v < 0 ? 'red' : 'muted2';
+
+  // Harvest alert banner HTML
+  const alertHtml = alertTriggered ? `
+    <div class="harvest-alert">
+      <div class="harvest-icon">🌾</div>
+      <div class="harvest-msg">
+        <span>${fmt(current)} · 已达割禾目标</span>
+        <span class="harvest-sub">组合盈利超过 +$${thresh} 阈值 — 考虑平仓锁定利润</span>
+      </div>
+    </div>` : '';
 
   el.style.display = 'block';
   el.innerHTML = `
@@ -333,6 +374,13 @@ function updateTodayRange(range) {
           <span class="trange-sep">|</span>
           <span class="trange-item ${cls(high)}">最高&nbsp;<b>${fmt(high)}</b></span>
           ${theoryWin != null ? `<span class="trange-sep">·</span><span class="trange-item muted2 trange-theory">理论&nbsp;<span class="red">${fmt(theoryLoss)}</span>&nbsp;~&nbsp;<span class="green">+$${theoryWin}</span></span>` : ''}
+          <span class="trange-sep">·</span>
+          <span class="trange-threshold">
+            <span class="trange-threshold-lbl">割禾</span>
+            <input class="trange-threshold-val" id="harvest-thresh-input" type="number"
+              value="${thresh}" min="0" max="9999" step="50"
+              title="点击修改割禾目标金额">
+          </span>
         </span>
       </div>
       <div class="trange-bar">
@@ -343,13 +391,25 @@ function updateTodayRange(range) {
         ${low != null ? `<div class="trange-pin" style="left:${lowPct.toFixed(1)}%"><div class="trange-pin-line"></div><div class="trange-pin-lbl ${cls(low)}">${fmt(low)}</div></div>` : ''}
         <div class="trange-pin" style="left:${highPct.toFixed(1)}%"><div class="trange-pin-line"></div><div class="trange-pin-lbl ${cls(high)}">${fmt(high)}</div></div>
         <div class="trange-now" style="left:${currentPct.toFixed(1)}%"><div class="trange-dot-now ${cls(current)}"></div></div>
+        ${threshPct >= 0 && threshPct <= 100 ? `<div class="trange-alert-line" style="left:${threshPct.toFixed(1)}%"></div>` : ''}
       </div>
       <div class="trange-axis">
         ${theoryLoss != null ? `<span class="${cls(theoryLoss)}">${fmt(theoryLoss)}<br><span class="trange-axis-sub">全止损</span></span>` : ''}
         <span class="trange-zero-lbl" style="left:${zeroPct.toFixed(1)}%">0</span>
         ${theoryWin != null ? `<span class="green">+$${theoryWin}<br><span class="trange-axis-sub">全止盈</span></span>` : ''}
       </div>
+      ${alertHtml}
     </div>`;
+
+  // Threshold input handler
+  const inp = document.getElementById('harvest-thresh-input');
+  if (inp) {
+    inp.addEventListener('change', () => {
+      const v = parseInt(inp.value, 10);
+      if (!isNaN(v) && v > 0) { _saveThreshold(v); _alertFired = false; }
+    });
+    inp.addEventListener('click', e => e.stopPropagation());
+  }
 }
 
 // ── Ticker Tape ──
@@ -643,6 +703,7 @@ function renderHistoryTable(history) {
   if (!history.length) {
     scrollEl.innerHTML = `<div class="hist-empty">暂无记录 — 今天交易完成后自动保存</div>`;
     if (subEl) subEl.textContent = '近30天记录';
+    renderEquityTracker([]);
     return;
   }
   if (subEl) subEl.textContent = `近30天记录 · 共 ${history.length} 天`;
@@ -700,6 +761,95 @@ function renderHistoryTable(history) {
   }).join('');
 
   scrollEl.innerHTML = `<div class="hist-day-list">${rows}</div>`;
+  renderEquityTracker(history);
+}
+
+// ── Equity Tracker ──────────────────────────────────────────────────────────
+const EQUITY_START = 10000;
+
+function renderEquityTracker(history) {
+  const panel = document.getElementById('equity-panel');
+  const body  = document.getElementById('equity-body');
+  if (!panel || !body) return;
+
+  if (!history.length) { panel.style.display = 'none'; return; }
+
+  // Build cumulative equity from oldest → newest
+  const sorted = [...history].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  let balance = EQUITY_START;
+  const points = [{ date: 'START', balance }];
+  for (const d of sorted) {
+    const usd = parsePnlUsd(d.total_usd);
+    balance += usd;
+    points.push({ date: (d.date || '').slice(5), balance: Math.round(balance) });
+  }
+
+  const current   = points[points.length - 1].balance;
+  const totalRet  = ((current - EQUITY_START) / EQUITY_START * 100).toFixed(1);
+  const isPos     = current >= EQUITY_START;
+  const retCls    = isPos ? 'green' : 'red';
+
+  // Peak & max drawdown
+  let peak = EQUITY_START, maxDD = 0;
+  for (const p of points) {
+    if (p.balance > peak) peak = p.balance;
+    const dd = (peak - p.balance) / peak * 100;
+    if (dd > maxDD) maxDD = dd;
+  }
+
+  // Latest day change
+  const prevBal  = points.length >= 2 ? points[points.length - 2].balance : EQUITY_START;
+  const dayDelta = current - prevBal;
+  const daySign  = dayDelta >= 0 ? '+' : '';
+  const dayCls   = dayDelta >= 0 ? 'green' : 'red';
+
+  // SVG equity curve
+  const vals    = points.map(p => p.balance);
+  const minVal  = Math.min(...vals);
+  const maxVal  = Math.max(...vals);
+  const vspan   = Math.max(maxVal - minVal, 1);
+  const W = 900, H = 80, padX = 4, padY = 6;
+  const n = vals.length;
+  const xs = vals.map((_, i) => padX + (i / Math.max(n - 1, 1)) * (W - padX * 2));
+  const ys = vals.map(v => H - padY - ((v - minVal) / vspan) * (H - padY * 2));
+  const lineD = xs.map((x, i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${ys[i].toFixed(1)}`).join(' ');
+  const fillD = `${lineD} L${xs[n-1].toFixed(1)},${H} L${xs[0].toFixed(1)},${H} Z`;
+  const lineCol = isPos ? '#00d97e' : '#ff4d6a';
+  const fillCol = isPos ? 'rgba(0,217,126,.10)' : 'rgba(255,77,106,.10)';
+  // Zero line (EQUITY_START) position
+  const zeroY = (H - padY - ((EQUITY_START - minVal) / vspan) * (H - padY * 2)).toFixed(1);
+
+  const svg = `<svg class="eq-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+    <line x1="0" y1="${zeroY}" x2="${W}" y2="${zeroY}" stroke="rgba(255,255,255,.1)" stroke-width="1" stroke-dasharray="4,4"/>
+    <path d="${fillD}" fill="${fillCol}"/>
+    <path d="${lineD}" fill="none" stroke="${lineCol}" stroke-width="2" stroke-linejoin="round"/>
+  </svg>`;
+
+  panel.style.display = 'block';
+  body.innerHTML = `
+    <div class="eq-stats">
+      <div class="eq-stat">
+        <div class="eq-stat-label">当前余额</div>
+        <div class="eq-stat-val ${retCls}">$${current.toLocaleString()}</div>
+        <div class="eq-stat-sub">起始 $${EQUITY_START.toLocaleString()}</div>
+      </div>
+      <div class="eq-stat">
+        <div class="eq-stat-label">总收益率</div>
+        <div class="eq-stat-val ${retCls}">${isPos ? '+' : ''}${totalRet}%</div>
+        <div class="eq-stat-sub">${isPos ? '+' : ''}$${(current - EQUITY_START).toLocaleString()}</div>
+      </div>
+      <div class="eq-stat">
+        <div class="eq-stat-label">昨日变动</div>
+        <div class="eq-stat-val ${dayCls}">${daySign}$${Math.abs(dayDelta).toLocaleString()}</div>
+        <div class="eq-stat-sub">${sorted[sorted.length - 1]?.date?.slice(5) || '–'}</div>
+      </div>
+      <div class="eq-stat">
+        <div class="eq-stat-label">最大回撤</div>
+        <div class="eq-stat-val red">-${maxDD.toFixed(1)}%</div>
+        <div class="eq-stat-sub">峰值 $${peak.toLocaleString()}</div>
+      </div>
+    </div>
+    ${svg}`;
 }
 
 // ── XAUUSD Focus ──────────────────────────────────────────────────────────────
