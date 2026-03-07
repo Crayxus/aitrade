@@ -792,8 +792,10 @@ def _startup_finalize_history():
     print(f"[STARTUP] Reconstructing history for {len(missing)} missing day(s): {missing}")
 
     # Pre-fetch OHLC for all unique tickers (covers all missing days in one pass)
+    # Falls back to 1h data when daily bar is missing for a specific date (e.g. BTC)
     all_tickers = {s.get("ticker") for d in missing for s in all_caches.get(d, []) if s.get("ticker")}
-    ticker_frames = {}
+    ticker_frames    = {}   # primary daily frames
+    ticker_frames_1h = {}   # 1h fallback frames
     for t in all_tickers:
         for sym in [t] + TICKER_FALLBACKS.get(t, []):
             try:
@@ -803,6 +805,18 @@ def _startup_finalize_history():
                     if df.index.tz:
                         df.index = df.index.tz_convert(None)
                     ticker_frames[t] = df
+                    break
+            except Exception:
+                continue
+        # Always fetch 1h fallback in case daily bar is absent for a date
+        for sym in [t] + TICKER_FALLBACKS.get(t, []):
+            try:
+                df1h = yf.Ticker(sym).history(period="7d", interval="1h").dropna()
+                df1h.columns = [c.capitalize() for c in df1h.columns]
+                if len(df1h) > 0:
+                    if df1h.index.tz:
+                        df1h.index = df1h.index.tz_convert(None)
+                    ticker_frames_1h[t] = df1h
                     break
             except Exception:
                 continue
@@ -825,12 +839,17 @@ def _startup_finalize_history():
                 ticker    = s.get("ticker")
 
                 df = ticker_frames.get(ticker)
-                if df is None:
-                    print(f"[STARTUP] No price data for {symbol} ticker={ticker}")
-                    continue
-
                 target   = pd.Timestamp(yesterday)
-                day_rows = df[df.index.normalize() == target]
+                day_rows = df[df.index.normalize() == target] if df is not None else pd.DataFrame()
+
+                # Fallback to 1h data if daily bar missing for this date
+                if len(day_rows) == 0:
+                    df1h = ticker_frames_1h.get(ticker)
+                    if df1h is not None:
+                        day_rows = df1h[df1h.index.normalize() == target]
+                        if len(day_rows) > 0:
+                            print(f"[STARTUP] {symbol}: using 1h fallback for {yesterday}")
+
                 if len(day_rows) == 0:
                     print(f"[STARTUP] No bar for {yesterday} ({symbol}), skipping")
                     continue

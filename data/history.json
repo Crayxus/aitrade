@@ -1,0 +1,41 @@
+{
+  "2026-03-06": {
+    "date": "2026-03-06",
+    "wins": 1,
+    "losses": 2,
+    "total": 3,
+    "win_rate": 33,
+    "avg_pnl": "-1.15%",
+    "total_usd": "$-297",
+    "best": {
+      "symbol": "XAUUSD",
+      "pnl": "+1.16%"
+    },
+    "worst": {
+      "symbol": "BTCUSD",
+      "pnl": "-2.98%"
+    },
+    "detail": [
+      {
+        "symbol": "XAUUSD",
+        "pnl_pct": "+1.16%",
+        "pnl_usd": "+$119",
+        "status": "time_exit"
+      },
+      {
+        "symbol": "NAS100",
+        "pnl_pct": "-1.64%",
+        "pnl_usd": "$-205",
+        "status": "hit_sl"
+      },
+      {
+        "symbol": "BTCUSD",
+        "pnl_pct": "-2.98%",
+        "pnl_usd": "$-211",
+        "status": "hit_sl"
+      }
+    ],
+    "pnl_range_high": null,
+    "pnl_range_low": null
+  }
+}
