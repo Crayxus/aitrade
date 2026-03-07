@@ -947,6 +947,54 @@ def _scheduler():
 
 threading.Thread(target=_scheduler, daemon=True).start()
 
+# ── Background Range Tracker (every 60s during trading hours) ─────────────────
+def _range_tracker():
+    """
+    Every 60 seconds, fetch live prices and update _today_pnl_range.
+    Only runs when we have strategies cached for today AND market is active
+    (15:00–03:00 BJ next day).
+    This captures intraday peaks/troughs independent of frontend polling.
+    """
+    print("[RANGE TRACKER] started")
+    while True:
+        try:
+            bj       = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+            date_str = bj.strftime('%Y-%m-%d')
+            hm       = bj.hour * 60 + bj.minute
+
+            # Active window: 15:00 BJ through 03:00 BJ next day
+            in_window = (hm >= 900) or (bj.hour < 3)
+
+            if in_window and date_str in _cache:
+                prices   = fetch_current_prices()
+                pnl_vals = []
+                for s in _cache[date_str]:
+                    cur = prices.get(s["symbol"])
+                    if cur is None:
+                        continue
+                    entry  = float(s["entry_mid"])
+                    es_h, es_m = map(int, s.get("entry_start", "00:00").split(":"))
+                    if hm < es_h * 60 + es_m:   # not yet in position
+                        continue
+                    if s["direction"] == "LONG":
+                        pnl_pct = (cur - entry) / entry * 100
+                    else:
+                        pnl_pct = (entry - cur) / entry * 100
+                    lv      = LOT_VALUES.get(s["symbol"], 1)
+                    lots    = s.get("recommended_lots", 0.1)
+                    pnl_usd = pnl_pct / 100 * entry * lv * lots
+                    pnl_vals.append(pnl_usd)
+
+                if pnl_vals:
+                    total = sum(pnl_vals)
+                    _update_pnl_range(date_str, total)
+
+        except Exception as e:
+            print(f"[RANGE TRACKER ERROR] {e}")
+        time.sleep(60)
+
+threading.Thread(target=_range_tracker, daemon=True).start()
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.route('/')
