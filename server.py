@@ -429,15 +429,28 @@ def is_past_exit(exit_time_str):
 
 # ── P&L Calc ─────────────────────────────────────────────────────────────────
 
+def _is_entry_pending(entry_start, bj):
+    """
+    Return True only if the entry window has NOT yet opened.
+    FIX Bug1: handles cross-midnight sessions — if it's 00:00-08:59 BJ and
+    entry_start >= 21:00, the position was already entered yesterday evening.
+    """
+    es_h, es_m = map(int, entry_start.split(":"))
+    bj_hm = bj.hour * 60 + bj.minute
+    # Overnight: 00:00-08:59 BJ after an evening entry (21:00+)
+    # means the position was entered the previous evening — NOT pending
+    if bj.hour < 9 and es_h >= 21:
+        return False
+    return bj_hm < es_h * 60 + es_m
+
 def calc_pnl(strategy, current_price):
     if current_price is None: return None
 
-    # Not yet in position — entry window hasn't opened
     entry_start = strategy.get("entry_start", "00:00")
     bj = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
-    bj_hm = bj.hour * 60 + bj.minute
-    es_h, es_m = map(int, entry_start.split(":"))
-    if bj_hm < es_h * 60 + es_m:
+
+    # Not yet in position — entry window hasn't opened
+    if _is_entry_pending(entry_start, bj):
         return {
             "symbol":        strategy["symbol"],
             "current_price": fmt_price(current_price, current_price),
@@ -603,6 +616,9 @@ def _save_strategy_cache(date_str, strategies):
             "ticker":            next((c["ticker"] for c in STRATEGY_CONFIGS if c["symbol"] == s["symbol"]), None),
             "risk_usd":          s.get("risk_usd", 0),
             "profit_usd":        s.get("profit_usd", 0),
+            # FIX Bug3: store entry window so reconstruction uses correct time slice
+            "entry_start":       s.get("entry_start", "15:00"),
+            "entry_end":         s.get("entry_end",   "15:30"),
         } for s in strategies]
         # Keep last 7 days to avoid unbounded growth
         cutoff = (datetime.datetime.utcnow() + datetime.timedelta(hours=8) - datetime.timedelta(days=7)).strftime("%Y-%m-%d")
@@ -799,24 +815,13 @@ def _startup_finalize_history():
 
     print(f"[STARTUP] Reconstructing history for {len(missing)} missing day(s): {missing}")
 
-    # Pre-fetch OHLC for all unique tickers (covers all missing days in one pass)
-    # Falls back to 1h data when daily bar is missing for a specific date (e.g. BTC)
+    # Pre-fetch 1h data for all unique tickers (primary for windowed reconstruction)
+    # Also fetch daily as fallback when 1h window data is unavailable for old dates
     all_tickers = {s.get("ticker") for d in missing for s in all_caches.get(d, []) if s.get("ticker")}
-    ticker_frames    = {}   # primary daily frames
-    ticker_frames_1h = {}   # 1h fallback frames
+    ticker_frames_1h = {}   # primary: 1h windowed P&L calc
+    ticker_frames    = {}   # fallback: daily data for dates > 7d ago
     for t in all_tickers:
-        for sym in [t] + TICKER_FALLBACKS.get(t, []):
-            try:
-                df = yf.Ticker(sym).history(period="30d", interval="1d").dropna()
-                df.columns = [c.capitalize() for c in df.columns]
-                if len(df) > 0:
-                    if df.index.tz:
-                        df.index = df.index.tz_convert(None)
-                    ticker_frames[t] = df
-                    break
-            except Exception:
-                continue
-        # Always fetch 1h fallback in case daily bar is absent for a date
+        # 1h data (primary)
         for sym in [t] + TICKER_FALLBACKS.get(t, []):
             try:
                 df1h = yf.Ticker(sym).history(period="7d", interval="1h").dropna()
@@ -825,6 +830,18 @@ def _startup_finalize_history():
                     if df1h.index.tz:
                         df1h.index = df1h.index.tz_convert(None)
                     ticker_frames_1h[t] = df1h
+                    break
+            except Exception:
+                continue
+        # Daily data (fallback for older dates)
+        for sym in [t] + TICKER_FALLBACKS.get(t, []):
+            try:
+                df = yf.Ticker(sym).history(period="30d", interval="1d").dropna()
+                df.columns = [c.capitalize() for c in df.columns]
+                if len(df) > 0:
+                    if df.index.tz:
+                        df.index = df.index.tz_convert(None)
+                    ticker_frames[t] = df
                     break
             except Exception:
                 continue
@@ -845,18 +862,37 @@ def _startup_finalize_history():
                 tp        = float(s["take_profit"])
                 lots      = float(s.get("recommended_lots", 0.1))
                 ticker    = s.get("ticker")
+                # FIX Bug3: use entry_start from cache; fall back to STRATEGY_CONFIGS
+                # for old cache entries that predate this fix
+                entry_start_str = s.get("entry_start") or next(
+                    (c["entry_start"] for c in STRATEGY_CONFIGS if c["symbol"] == symbol),
+                    "15:00"
+                )
+                es_h, es_m = map(int, entry_start_str.split(":"))
+                # BJ → UTC: 15:00 BJ = 07:00 UTC, 21:00 BJ = 13:00 UTC
+                utc_start_h = es_h - 8
+                # Exit is always 03:00 BJ = 19:00 UTC same calendar day
+                utc_end_h = 19
 
-                df = ticker_frames.get(ticker)
-                target   = pd.Timestamp(yesterday)
-                day_rows = df[df.index.normalize() == target] if df is not None else pd.DataFrame()
+                # Primary: 1h data sliced to the entry window
+                day_rows = pd.DataFrame()
+                df1h = ticker_frames_1h.get(ticker)
+                if df1h is not None and len(df1h) > 0:
+                    target_date = pd.Timestamp(yesterday)
+                    win_start = target_date + pd.Timedelta(hours=utc_start_h, minutes=es_m)
+                    win_end   = target_date + pd.Timedelta(hours=utc_end_h)
+                    day_rows  = df1h[(df1h.index >= win_start) & (df1h.index <= win_end)]
+                    if len(day_rows) > 0:
+                        print(f"[STARTUP] {symbol}: 1h window {entry_start_str}–03:00 BJ for {yesterday} ({len(day_rows)} bars)")
 
-                # Fallback to 1h data if daily bar missing for this date
+                # Fallback: daily bar (less accurate, but covers dates older than 7d)
                 if len(day_rows) == 0:
-                    df1h = ticker_frames_1h.get(ticker)
-                    if df1h is not None:
-                        day_rows = df1h[df1h.index.normalize() == target]
+                    df = ticker_frames.get(ticker)
+                    if df is not None:
+                        target = pd.Timestamp(yesterday)
+                        day_rows = df[df.index.normalize() == target]
                         if len(day_rows) > 0:
-                            print(f"[STARTUP] {symbol}: using 1h fallback for {yesterday}")
+                            print(f"[STARTUP] {symbol}: daily fallback for {yesterday}")
 
                 if len(day_rows) == 0:
                     print(f"[STARTUP] No bar for {yesterday} ({symbol}), skipping")
@@ -910,9 +946,9 @@ threading.Thread(target=_startup_finalize_history, daemon=True).start()
 def _scheduler():
     """
     Auto-trigger strategy computation at key Beijing times:
-      15:00 BJ → London open (XAUUSD primary entry)
-      21:00 BJ → NY open    (XAUUSD backup entry)
-      03:30 BJ → Finalise today's XAUUSD P&L
+      15:00 BJ → London open (all 3 instruments, XAU primary entry)
+      21:00 BJ → NY open    (rebuild all 3 with real entry data; XAU backup)
+      03:30 BJ → Finalise today's P&L for all instruments
     """
     triggered = set()
     print("[SCHEDULER] started — waiting for 15:00 / 21:00 / 03:30 BJ")
@@ -936,15 +972,23 @@ def _scheduler():
                 triggered.add(k_lon)
 
             # NY 21:00-21:09 BJ
+            # FIX Bug4: rebuild ALL strategies so NAS100 & BTC get real NY-session
+            # ORB levels (at 15:00 they were estimated; now actual open data is available)
             k_ny = f"{ds}-ny"
             if 1260 <= hm < 1270 and k_ny not in triggered:
                 print(f"[AUTO] NY open {ds} 21:00")
+                try:
+                    data = build_strategies()
+                    _cache[ds] = data
+                    _save_strategy_cache(ds, data)
+                except Exception as e:
+                    print(f"[AUTO ERROR] NY strategies: {e}")
                 try:
                     ny_sig = build_ny_signal()
                     _ny_cache[ds] = ny_sig
                     _upsert_xau_today([ny_sig], "NY")
                 except Exception as e:
-                    print(f"[AUTO ERROR] NY: {e}")
+                    print(f"[AUTO ERROR] NY XAU backup: {e}")
                 triggered.add(k_ny)
 
             # Finalise 03:30 BJ
@@ -990,8 +1034,8 @@ def _range_tracker():
                     if cur is None:
                         continue
                     entry  = float(s["entry_mid"])
-                    es_h, es_m = map(int, s.get("entry_start", "00:00").split(":"))
-                    if hm < es_h * 60 + es_m:   # not yet in position
+                    # FIX Bug2: use same cross-midnight logic as calc_pnl
+                    if _is_entry_pending(s.get("entry_start", "00:00"), bj):
                         continue
                     if s["direction"] == "LONG":
                         pnl_pct = (cur - entry) / entry * 100
